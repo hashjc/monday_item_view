@@ -4,8 +4,8 @@ import "./App.css";
 import mondaySdk from "monday-sdk-js";
 import "@vibe/core/tokens";
 //Explore more Monday React Components here: https://vibe.monday.com/
-import { AttentionBox } from "@vibe/core";
-
+// Optional metadata board id stored locally for testing (falls back to env vars).
+import { METADATA_BOARD_ID as METADATA_BOARD_ID_FROM_FILE } from "./metadataConfig";
 // Usage of mondaySDK example, for more information visit here: https://developer.monday.com/apps/docs/introduction-to-the-sdk/
 const monday = mondaySdk();
 
@@ -44,7 +44,7 @@ const App = () => {
                     // Try to extract board id from a few common context shapes.
                     const detectedBoardId =
                         res.data.boardId || (res.data.board && res.data.board.id) || (res.data.selectedBoard && res.data.selectedBoard.id) || null;
-
+                    console.log('Detected board id ', detectedBoardId);
                     // Save board id if available; otherwise we'll fetch boards for user selection.
                     if (detectedBoardId) {
                         setBoardId(String(detectedBoardId));
@@ -92,13 +92,94 @@ const App = () => {
         });
     }, []);
 
-    //Some example what you can do with context, read more here: https://developer.monday.com/apps/docs/mondayget#requesting-context-and-settings-data
-    const attentionBoxText = `Hello, your user_id is: ${context ? context.user.id : "still loading"}.
-  Let's start building your amazing app, which will change the world!`;
+    // If we have a boardId but no friendly name, fetch board details to show a dynamic header.
+    useEffect(() => {
+        if (!boardId) return;
+        if (selectedBoardName) return; // already have name
+
+        // Query the API for board details by id to get a friendly name and workspace
+        const query = `query { boards (ids: [${boardId}]) { id name workspace { id name } } }`;
+        monday
+            .api(query)
+            .then((res) => {
+                const list = res && res.data && res.data.boards ? res.data.boards : [];
+                if (list.length > 0) {
+                    const b = list[0];
+                    setSelectedBoardName(b.name || "");
+                    // If boards list for dropdown is empty, seed it with this board (useful if selection came from context)
+                    if (!boards || boards.length === 0) setBoards([b]);
+                    console.log("fetched board details:", b);
+                }
+            })
+            .catch((err) => console.error("Failed to fetch board details:", err));
+    }, [boardId, selectedBoardName]);
+
+    console.log('Metadata board id getting 00 ');
+    // Query the Metadata board for records matching the selected/detected boardId.
+    // The metadata board id is expected in environment variables. In Vite apps, expose it
+    // to the client using a `VITE_` prefix (e.g. VITE_METADATA_BOARD_ID=5026617338).
+    useEffect(() => {
+        if (!boardId) return; // nothing to query for yet
+        console.log('Metadata board id getting ');
+        // Prefer the id from the local config file (useful for testing). Fall back to env.
+        const METADATA_BOARD_ID =
+            METADATA_BOARD_ID_FROM_FILE || import.meta.env.VITE_METADATA_BOARD_ID || import.meta.env.METADATA_BOARD_ID || null;
+        console.log('Metadata board id (source order: file, VITE_, raw):', METADATA_BOARD_ID);
+        if (!METADATA_BOARD_ID) {
+            console.warn(
+                "METADATA_BOARD_ID not set in .env (use VITE_METADATA_BOARD_ID for Vite).")
+            ;
+            return;
+        }
+
+        // Query the metadata board items and their columns. We'll filter locally by the
+        // 'Board Id' column and sort by the 'Section Order' column (ascending).
+        const query = `query { boards (ids: [${METADATA_BOARD_ID}]) { items(limit:100) { id name column_values { id title text value } } } }`;
+        monday
+            .api(query)
+            .then((res) => {
+                const items =
+                    res && res.data && res.data.boards && res.data.boards[0]
+                        ? res.data.boards[0].items || []
+                        : [];
+
+                // Map items to include the Board Id and Section Order fields extracted from column_values
+                const mapped = items
+                    .map((it) => {
+                        const cols = it.column_values || [];
+                        const boardIdCol = cols.find((c) => (c.title || "").toLowerCase() === "board id");
+                        const sectionOrderCol = cols.find((c) => (c.title || "").toLowerCase() === "section order");
+
+                        // Column `.text` is usually the human-readable value; `.value` may be JSON.
+                        const boardIdValue = boardIdCol ? (boardIdCol.text || boardIdCol.value || "") : "";
+                        const sectionOrderValue = sectionOrderCol ? (sectionOrderCol.text || sectionOrderCol.value || "") : "";
+
+                        // Try to coerce section order into a number for sorting
+                        const orderNum = parseFloat(sectionOrderValue) || 0;
+
+                        return {
+                            id: it.id,
+                            name: it.name,
+                            rawColumns: cols,
+                            boardIdValue,
+                            sectionOrderValue,
+                            orderNum,
+                        };
+                    })
+                    // filter only records that match the target boardId
+                    .filter((m) => String(m.boardIdValue) === String(boardId));
+
+                // sort by orderNum ascending
+                mapped.sort((a, b) => a.orderNum - b.orderNum);
+
+                console.log("Metadata records for board", boardId, ":", mapped);
+            })
+            .catch((err) => console.error("Failed to query metadata board:", err));
+    }, [boardId]);
+
 
     return (
         <div className="App">
-
             {/* If no boardId available from context, show a dropdown to pick one */}
             {!boardId ? (
                 <div style={{ marginTop: 16 }}>
@@ -139,6 +220,6 @@ const App = () => {
             )}
         </div>
     );
-};;
+};;;
 
 export default App;
