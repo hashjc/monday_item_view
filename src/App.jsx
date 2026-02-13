@@ -103,9 +103,13 @@ const App = () => {
     // Use hooks for boards/board details/metadata records
     const { boards: boardsFromHook } = useBoards();
 
+    console.log("Metadata board id getting 01 from file ", METADATA_BOARD_ID_FROM_FILE);
+    console.log("Metadata board id getting 01 from env vite ", import.meta.env.VITE_METADATA_BOARD_ID);
+    console.log("Metadata board id getting 01 from env  loca env ", import.meta.env.METADATA_BOARD_ID);
+
     // Prefer file/ENV metadata id
     const METADATA_BOARD_ID = METADATA_BOARD_ID_FROM_FILE || import.meta.env.VITE_METADATA_BOARD_ID || import.meta.env.METADATA_BOARD_ID || null;
-
+    console.log("Metadata board id getting 01 ", METADATA_BOARD_ID);
     const { records: metadataRecords } = useMetadataRecords(boardId, METADATA_BOARD_ID);
 
     // Sync hook-provided boards into local variable used by UI
