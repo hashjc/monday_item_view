@@ -23,9 +23,6 @@ const App = () => {
     // Friendly board name for the selected board (used in form label)
     const [selectedBoardName, setSelectedBoardName] = useState("");
 
-
-
-
     useEffect(() => {
         // Notice this method notifies the monday platform that user gains a first value in an app.
         // Read more about it here: https://developer.monday.com/apps/docs/mondayexecute#value-created-for-user/
@@ -86,6 +83,7 @@ const App = () => {
     }, []);
 
     // If we have a boardId but no friendly name, fetch board details to show a dynamic header.
+    /*
     useEffect(() => {
         if (!boardId) return;
         if (selectedBoardName) return; // already have name
@@ -104,42 +102,21 @@ const App = () => {
             })
             .catch((err) => console.error("Failed to fetch board details:", err));
     }, [boardId, selectedBoardName]);
-
+    */
     // Use hooks for boards/board details/metadata records
     const { boards: boardsFromHook } = useBoards();
     const boards = boardsFromHook || [];
     console.log("App.jsx Boards from hook ", boardsFromHook);
 
-    // Prefer file/ENV metadata id
-    /*
-    const METADATA_BOARD_ID = METADATA_BOARD_ID_FROM_FILE || import.meta.env.VITE_METADATA_BOARD_ID || import.meta.env.METADATA_BOARD_ID || null;
-    console.log("Metadata board id getting 01 latest ", METADATA_BOARD_ID);
-    const pageLayoutMetadataItemsResult = usePageLayoutInfo(boardId);
-    //const { records: metadataRecords } = useMetadataRecords(boardId, METADATA_BOARD_ID);
-    console.log("Metadata board records ", pageLayoutMetadataItemsResult);
-
-    // Sync hook-provided boards into local variable used by UI
-    const boards = boardsFromHook || [];
-    */
-    // Log metadataRecords when they change (keeps previous behavior of printing to console)
-    /*
-    useEffect(() => {
-
-        if (metadataRecords && metadataRecords.length > 0) {
-            console.log("Metadata records for board", boardId, ":", metadataRecords);
-        }
-
-    }, [metadataRecords, boardId]);
-    */
     const pageLayoutMetadataItemsResult = usePageLayoutInfo(boardId);
     //const { records: metadataRecords } = useMetadataRecords(boardId, METADATA_BOARD_ID);
     console.log("App.jsx Metadata board records ", pageLayoutMetadataItemsResult);
-
+    /*
     // Use `context` somewhere so the linter/compiler doesn't flag it as unused.
     useEffect(() => {
         console.log("current context state:", context);
     }, [context]);
-
+    */
     return (
         <div className="App">
             {/* If no boardId available from context, show a dropdown to pick one */}
