@@ -8,7 +8,9 @@ import "@vibe/core/tokens";
 // Optional metadata board id stored locally for testing (falls back to env vars).
 import { METADATA_BOARD_ID as METADATA_BOARD_ID_FROM_FILE } from "./metadataConfig";
 import { useBoards } from "./hooks/useBoards";
-import { useMetadataRecords } from "./hooks/useMetadataRecords";
+//import { useMetadataRecords, retrievePageLayoutInfoForBoard } from "./hooks/useMetadataRecords";
+import { usePageLayoutInfo  } from "./hooks/pageLayoutService";
+
 // Usage of mondaySDK example, for more information visit here: https://developer.monday.com/apps/docs/introduction-to-the-sdk/
 const monday = mondaySdk();
 
@@ -20,6 +22,9 @@ const App = () => {
     // List of boards to show in dropdown when boardId is not available
     // Friendly board name for the selected board (used in form label)
     const [selectedBoardName, setSelectedBoardName] = useState("");
+
+
+
 
     useEffect(() => {
         // Notice this method notifies the monday platform that user gains a first value in an app.
@@ -103,27 +108,31 @@ const App = () => {
     console.log("Metadata board id getting 00 ");
     // Use hooks for boards/board details/metadata records
     const { boards: boardsFromHook } = useBoards();
-
+    console.log("Boards from hook ", boardsFromHook);
     console.log("Metadata board id getting 01 from file ", METADATA_BOARD_ID_FROM_FILE);
     console.log("Metadata board id getting 01 from env vite ", import.meta.env.VITE_METADATA_BOARD_ID);
     console.log("Metadata board id getting 01 from env  loca env ", import.meta.env.METADATA_BOARD_ID);
 
     // Prefer file/ENV metadata id
     const METADATA_BOARD_ID = METADATA_BOARD_ID_FROM_FILE || import.meta.env.VITE_METADATA_BOARD_ID || import.meta.env.METADATA_BOARD_ID || null;
-    console.log("Metadata board id getting 01 ", METADATA_BOARD_ID);
-    const { records: metadataRecords } = useMetadataRecords(boardId, METADATA_BOARD_ID);
-    console.log("Metadata board records ", metadataRecords);
+    console.log("Metadata board id getting 01 latest ", METADATA_BOARD_ID);
+    const pageLayoutMetadataItemsResult = usePageLayoutInfo(boardId);
+    //const { records: metadataRecords } = useMetadataRecords(boardId, METADATA_BOARD_ID);
+    console.log("Metadata board records ", pageLayoutMetadataItemsResult);
 
     // Sync hook-provided boards into local variable used by UI
     const boards = boardsFromHook || [];
 
     // Log metadataRecords when they change (keeps previous behavior of printing to console)
+    /*
     useEffect(() => {
+
         if (metadataRecords && metadataRecords.length > 0) {
             console.log("Metadata records for board", boardId, ":", metadataRecords);
         }
-    }, [metadataRecords, boardId]);
 
+    }, [metadataRecords, boardId]);
+    */
     // Use `context` somewhere so the linter/compiler doesn't flag it as unused.
     useEffect(() => {
         console.log("current context state:", context);
