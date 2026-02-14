@@ -51,7 +51,7 @@ const App = () => {
                     // Try to extract board id from a few common context shapes.
                     const detectedBoardId =
                         res.data.boardId || (res.data.board && res.data.board.id) || (res.data.selectedBoard && res.data.selectedBoard.id) || null;
-                    console.log("Detected board id ", detectedBoardId);
+                    console.log("App.jsx Detected board id ", detectedBoardId);
                     // Save board id if available; otherwise we'll fetch boards for user selection.
                     if (detectedBoardId) {
                         setBoardId(String(detectedBoardId));
@@ -105,15 +105,13 @@ const App = () => {
             .catch((err) => console.error("Failed to fetch board details:", err));
     }, [boardId, selectedBoardName]);
 
-    console.log("Metadata board id getting 00 ");
     // Use hooks for boards/board details/metadata records
     const { boards: boardsFromHook } = useBoards();
-    console.log("Boards from hook ", boardsFromHook);
-    console.log("Metadata board id getting 01 from file ", METADATA_BOARD_ID_FROM_FILE);
-    console.log("Metadata board id getting 01 from env vite ", import.meta.env.VITE_METADATA_BOARD_ID);
-    console.log("Metadata board id getting 01 from env  loca env ", import.meta.env.METADATA_BOARD_ID);
+    const boards = boardsFromHook || [];
+    console.log("App.jsx Boards from hook ", boardsFromHook);
 
     // Prefer file/ENV metadata id
+    /*
     const METADATA_BOARD_ID = METADATA_BOARD_ID_FROM_FILE || import.meta.env.VITE_METADATA_BOARD_ID || import.meta.env.METADATA_BOARD_ID || null;
     console.log("Metadata board id getting 01 latest ", METADATA_BOARD_ID);
     const pageLayoutMetadataItemsResult = usePageLayoutInfo(boardId);
@@ -122,7 +120,7 @@ const App = () => {
 
     // Sync hook-provided boards into local variable used by UI
     const boards = boardsFromHook || [];
-
+    */
     // Log metadataRecords when they change (keeps previous behavior of printing to console)
     /*
     useEffect(() => {
@@ -133,6 +131,10 @@ const App = () => {
 
     }, [metadataRecords, boardId]);
     */
+    const pageLayoutMetadataItemsResult = usePageLayoutInfo(boardId);
+    //const { records: metadataRecords } = useMetadataRecords(boardId, METADATA_BOARD_ID);
+    console.log("App.jsx Metadata board records ", pageLayoutMetadataItemsResult);
+
     // Use `context` somewhere so the linter/compiler doesn't flag it as unused.
     useEffect(() => {
         console.log("current context state:", context);

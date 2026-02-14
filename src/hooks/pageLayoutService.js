@@ -24,12 +24,14 @@ const PAGELAYOUTSECTIONS_BOARD_ID = METADATA_BOARD_ID_FROM_FILE;
  * @returns {Promise<Object>} { success, error, items }
  */
 export async function retrievePageLayoutInfoForBoard(boardId) {
+    console.log(`PageLayoutService.js Fetching layout for board ${boardId} from metadata board ${PAGELAYOUTSECTIONS_BOARD_ID}`);
+
     // Validate inputs
     if (!boardId) {
         return {
             success: false,
             error: "Board ID is required",
-            items: []
+            items: [],
         };
     }
 
@@ -37,27 +39,31 @@ export async function retrievePageLayoutInfoForBoard(boardId) {
         return {
             success: false,
             error: "PageLayout metadata board ID is not configured. Check metadataConfig.js",
-            items: []
+            items: [],
         };
     }
 
     try {
-        console.log(`[retrievePageLayoutInfo] Fetching layout for board ${boardId} from metadata board ${PAGELAYOUTSECTIONS_BOARD_ID}`);
+        console.log(`PageLayoutService.js Fetching layout for board ${boardId} from metadata board ${PAGELAYOUTSECTIONS_BOARD_ID}`);
 
         // STEP 1: Query the PageLayout board to get all items
         // This runs with CURRENT USER's permissions
         const query = `
-            query {
-                boards(ids: [${PAGELAYOUTSECTIONS_BOARD_ID}]) {
-                    items_page(limit: 500) {
+            query ($boardId: [ID!]) {
+                boards(ids: $boardId) {
+                    items_page (limit: 500) {
                         items {
                             id
                             name
                             column_values {
                                 id
-                                title
-                                text
-                                value
+                                ... on TextValue {
+                                    text
+                                }
+                                ... on BoardRelationValue {
+                                    display_value
+                                }
+                                # Add other fragments as needed
                             }
                         }
                     }
@@ -65,14 +71,15 @@ export async function retrievePageLayoutInfoForBoard(boardId) {
             }
         `;
 
-        const response = await monday.api(query);
+        // Execute with variables for better validation
+        const response = await monday.api(query, { variables: { boardId: [PAGELAYOUTSECTIONS_BOARD_ID] } });
 
         // STEP 2: Check if query was successful
         if (!response || !response.data) {
             return {
                 success: false,
                 error: "No response from Monday API. Check network connection.",
-                items: []
+                items: [],
             };
         }
 
@@ -81,21 +88,19 @@ export async function retrievePageLayoutInfoForBoard(boardId) {
             return {
                 success: false,
                 error: `Cannot access PageLayout board (ID: ${PAGELAYOUTSECTIONS_BOARD_ID}). User may lack permissions or board doesn't exist.`,
-                items: []
+                items: [],
             };
         }
 
         // STEP 4: Extract items from response
         const board = response.data.boards[0];
         const allItems = board.items_page?.items || [];
-
-        console.log(`[retrievePageLayoutInfo] Found ${allItems.length} total items in PageLayout board`);
+        console.log("PageLayoutService board records ", allItems);
+        console.log(`PageLayoutService  Found ${allItems.length} total items in PageLayout board`);
 
         // STEP 5: Filter items where "Board ID" column matches our target boardId
-        const matchingItems = allItems.filter(item => {
-            const boardIdColumn = item.column_values.find(col =>
-                col.title && col.title.toLowerCase() === "board id"
-            );
+        const matchingItems = allItems.filter((item) => {
+            const boardIdColumn = item.column_values.find((col) => col.title && col.title.toLowerCase() === "board id");
 
             if (!boardIdColumn) {
                 return false;
@@ -108,30 +113,30 @@ export async function retrievePageLayoutInfoForBoard(boardId) {
             return columnValue === targetValue;
         });
 
-        console.log(`[retrievePageLayoutInfo] Found ${matchingItems.length} items matching board ID ${boardId}`);
+        console.log(`PageLayoutService.js Found ${matchingItems.length} items matching board ID ${boardId}`);
 
         // STEP 6: Return successful result
         return {
             success: true,
             error: "",
-            items: matchingItems
+            items: matchingItems,
         };
-
     } catch (error) {
         // STEP 7: Handle errors (network, permissions, GraphQL errors)
-        console.error("[retrievePageLayoutInfo] Error:", error);
+        console.error("PageLayoutService.js Error:", error);
 
         // Check if it's a permission error
         const errorMessage = error.message || String(error);
-        const isPermissionError = errorMessage.toLowerCase().includes("permission") ||
-                                 errorMessage.toLowerCase().includes("unauthorized") ||
-                                 errorMessage.toLowerCase().includes("forbidden");
+        const isPermissionError =
+            errorMessage.toLowerCase().includes("permission") ||
+            errorMessage.toLowerCase().includes("unauthorized") ||
+            errorMessage.toLowerCase().includes("forbidden");
 
         if (isPermissionError) {
             return {
                 success: false,
                 error: `Permission denied: User does not have access to PageLayout board (ID: ${PAGELAYOUTSECTIONS_BOARD_ID}). Contact admin to grant access.`,
-                items: []
+                items: [],
             };
         }
 
@@ -139,7 +144,7 @@ export async function retrievePageLayoutInfoForBoard(boardId) {
         return {
             success: false,
             error: `Failed to fetch page layout: ${errorMessage}`,
-            items: []
+            items: [],
         };
     }
 }
