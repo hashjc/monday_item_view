@@ -1,3 +1,4 @@
+//App.jsx
 import React from "react";
 import { useState, useEffect } from "react";
 import "./App.css";
@@ -111,6 +112,7 @@ const App = () => {
     const METADATA_BOARD_ID = METADATA_BOARD_ID_FROM_FILE || import.meta.env.VITE_METADATA_BOARD_ID || import.meta.env.METADATA_BOARD_ID || null;
     console.log("Metadata board id getting 01 ", METADATA_BOARD_ID);
     const { records: metadataRecords } = useMetadataRecords(boardId, METADATA_BOARD_ID);
+    console.log("Metadata board records ", metadataRecords);
 
     // Sync hook-provided boards into local variable used by UI
     const boards = boardsFromHook || [];
@@ -168,6 +170,6 @@ const App = () => {
             )}
         </div>
     );
-};;;
+};
 
 export default App;
