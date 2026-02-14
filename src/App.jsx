@@ -82,27 +82,6 @@ const App = () => {
         });
     }, []);
 
-    // If we have a boardId but no friendly name, fetch board details to show a dynamic header.
-    /*
-    useEffect(() => {
-        if (!boardId) return;
-        if (selectedBoardName) return; // already have name
-
-        // Query the API for board details by id to get a friendly name and workspace
-        const query = `query { boards (ids: [${boardId}]) { id name workspace { id name } } }`;
-        monday
-            .api(query)
-            .then((res) => {
-                const list = res && res.data && res.data.boards ? res.data.boards : [];
-                if (list.length > 0) {
-                    const b = list[0];
-                    setSelectedBoardName(b.name || "");
-                    console.log("fetched board details:", b);
-                }
-            })
-            .catch((err) => console.error("Failed to fetch board details:", err));
-    }, [boardId, selectedBoardName]);
-    */
     // Use hooks for boards/board details/metadata records
     const { boards: boardsFromHook } = useBoards();
     const boards = boardsFromHook || [];
@@ -111,12 +90,8 @@ const App = () => {
     const pageLayoutMetadataItemsResult = usePageLayoutInfo(boardId);
     //const { records: metadataRecords } = useMetadataRecords(boardId, METADATA_BOARD_ID);
     console.log("App.jsx Metadata board records ", pageLayoutMetadataItemsResult);
-    /*
-    // Use `context` somewhere so the linter/compiler doesn't flag it as unused.
-    useEffect(() => {
-        console.log("current context state:", context);
-    }, [context]);
-    */
+    //ToDo: If No tems retruend from page layout: then UI should show: Page Layout Information not found for board <BoardName> (BoardId).
+    //Else: Give two radio buttons (menu): Do you want to create or update a record (Create / Update), add event handlers and print Create or update on console.log.
     return (
         <div className="App">
             {/* If no boardId available from context, show a dropdown to pick one */}
