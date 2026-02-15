@@ -14,14 +14,16 @@ const App = () => {
     const [context, setContext] = useState();
     const [boardId, setBoardId] = useState(null);
     const [selectedBoardName, setSelectedBoardName] = useState("");
-    const [formAction, setFormAction] = useState("create"); // "create" or "update"
+    const [formAction, setFormAction] = useState("create");
 
-    // For Update mode
     const [boardItems, setBoardItems] = useState([]);
     const [loadingItems, setLoadingItems] = useState(false);
     const [itemsError, setItemsError] = useState(null);
     const [selectedItemId, setSelectedItemId] = useState("");
     const [selectedItem, setSelectedItem] = useState(null);
+
+    const [formData, setFormData] = useState({});
+    const [collapsedSections, setCollapsedSections] = useState({});
 
     useEffect(() => {
         monday.execute("valueCreatedForUser");
@@ -71,19 +73,13 @@ const App = () => {
         });
     }, []);
 
-    // Fetch boards and page layout
     const { boards: boardsFromHook } = useBoards();
     const boards = boardsFromHook || [];
-    console.log("App.jsx Boards from hook:", boardsFromHook);
 
-    const { items: pageLayoutItems, loading: pageLayoutLoading, error: pageLayoutError } = usePageLayoutInfo(boardId);
-    console.log("App.jsx Page layout items:", pageLayoutItems);
-    console.log("App.jsx Page layout loading:", pageLayoutLoading);
-    console.log("App.jsx Page layout error:", pageLayoutError);
+    const { items, validatedSections, validationSummary, loading, error } = usePageLayoutInfo(boardId);
+    const pageLayoutLoading = loading;
+    const pageLayoutError = error;
 
-    /**
-     * Fetch board items when switching to Update mode
-     */
     const fetchBoardItemsForUpdate = async () => {
         if (!boardId) return;
 
@@ -109,27 +105,20 @@ const App = () => {
         }
     };
 
-    /**
-     * Handle form action change (Create or Update)
-     */
     const handleFormActionChange = (event) => {
         const action = event.target.value;
         setFormAction(action);
         console.log(`Form action changed to: ${action}`);
 
-        // Reset selection when switching modes
         setSelectedItemId("");
         setSelectedItem(null);
+        setFormData({});
 
-        // If switching to Update mode, fetch board items
         if (action === "update") {
             fetchBoardItemsForUpdate();
         }
     };
 
-    /**
-     * Handle item selection from dropdown (Update mode)
-     */
     const handleItemSelection = async (event) => {
         const itemId = event.target.value;
         setSelectedItemId(itemId);
@@ -137,102 +126,279 @@ const App = () => {
 
         if (!itemId) {
             setSelectedItem(null);
+            setFormData({});
             return;
         }
 
-        // Fetch full item details
         try {
             const result = await retrieveItemById(itemId);
             if (result.success) {
                 setSelectedItem(result.item);
                 console.log("Loaded item details:", result.item);
+
+                const itemData = {};
+                itemData["name"] = result.item.name;
+
+                result.item.column_values.forEach((col) => {
+                    itemData[col.id] = col.text || col.value || "";
+                });
+
+                setFormData(itemData);
+                console.log("Form populated with item data:", itemData);
             } else {
                 console.error("Failed to load item:", result.error);
                 setSelectedItem(null);
+                setFormData({});
             }
         } catch (error) {
             console.error("Error loading item:", error);
             setSelectedItem(null);
+            setFormData({});
         }
     };
 
-    /**
-     * Load and render the dynamic form based on page layout
-     * TODO: This will be implemented to create fields dynamically from pageLayoutItems
-     */
-    const loadForm = () => {
-        console.log("loadForm called - will create dynamic form from page layout");
-        console.log("Page layout items to render:", pageLayoutItems);
-        console.log("Form action:", formAction);
-        console.log("Selected item:", selectedItem);
+    const handleFieldChange = (columnId, value) => {
+        setFormData((prev) => ({
+            ...prev,
+            [columnId]: value,
+        }));
+    };
 
-        // PLACEHOLDER: Will implement dynamic form rendering here
-        return (
-            <div style={{ marginTop: 20, padding: 20, border: "1px solid #ddd", borderRadius: 8 }}>
-                <h3>Dynamic Form (Placeholder)</h3>
-                <p>
-                    Form action: <strong>{formAction}</strong>
-                </p>
-                <p>
-                    Number of layout sections: <strong>{pageLayoutItems.length}</strong>
-                </p>
+    const toggleSection = (sectionId) => {
+        setCollapsedSections((prev) => ({
+            ...prev,
+            [sectionId]: !prev[sectionId],
+        }));
+    };
 
-                {formAction === "update" && selectedItem && (
-                    <div
+    const renderField = (field) => {
+        const value = formData[field.columnId] || "";
+
+        const inputStyle = {
+            padding: "8px 12px",
+            width: "100%",
+            borderRadius: "4px",
+            border: "1px solid #ccc",
+            fontSize: "14px",
+            fontFamily: "inherit",
+        };
+
+        switch (field.type) {
+            case "name":
+            case "text":
+                return (
+                    <input
+                        type="text"
+                        value={value}
+                        onChange={(e) => handleFieldChange(field.columnId, e.target.value)}
+                        placeholder={`Enter ${field.label}`}
+                        style={inputStyle}
+                    />
+                );
+
+            case "long_text":
+                return (
+                    <textarea
+                        value={value}
+                        onChange={(e) => handleFieldChange(field.columnId, e.target.value)}
+                        placeholder={`Enter ${field.label}`}
+                        rows={4}
                         style={{
-                            padding: 10,
-                            backgroundColor: "#d4edda",
-                            borderRadius: 4,
-                            marginBottom: 15,
+                            ...inputStyle,
+                            resize: "vertical",
                         }}
-                    >
-                        <p style={{ margin: 0, color: "#155724" }}>
-                            Editing: <strong>{selectedItem.name}</strong> (ID: {selectedItem.id})
+                    />
+                );
+
+            case "numbers":
+                return (
+                    <input
+                        type="number"
+                        value={value}
+                        onChange={(e) => handleFieldChange(field.columnId, e.target.value)}
+                        placeholder={`Enter ${field.label}`}
+                        style={inputStyle}
+                    />
+                );
+
+            case "date":
+                return <input type="date" value={value} onChange={(e) => handleFieldChange(field.columnId, e.target.value)} style={inputStyle} />;
+
+            case "checkbox":
+                return (
+                    <label style={{ display: "flex", alignItems: "center", cursor: "pointer" }}>
+                        <input
+                            type="checkbox"
+                            checked={value === "true" || value === true}
+                            onChange={(e) => handleFieldChange(field.columnId, e.target.checked)}
+                            style={{ marginRight: "8px" }}
+                        />
+                        <span>Yes</span>
+                    </label>
+                );
+
+            case "formula":
+            case "mirror":
+                return (
+                    <input
+                        type="text"
+                        value={value}
+                        readOnly
+                        disabled
+                        placeholder="(Calculated field)"
+                        style={{
+                            ...inputStyle,
+                            backgroundColor: "#f5f5f5",
+                            cursor: "not-allowed",
+                        }}
+                    />
+                );
+
+            case "status":
+            case "people":
+            case "board_relation":
+            case "doc":
+                return (
+                    <input
+                        type="text"
+                        value={value}
+                        onChange={(e) => handleFieldChange(field.columnId, e.target.value)}
+                        placeholder={`Enter ${field.label} (Complex type - simplified input)`}
+                        style={inputStyle}
+                    />
+                );
+
+            default:
+                return (
+                    <input
+                        type="text"
+                        value={value}
+                        onChange={(e) => handleFieldChange(field.columnId, e.target.value)}
+                        placeholder={`Enter ${field.label}`}
+                        style={inputStyle}
+                    />
+                );
+        }
+    };
+
+    const handleFormSubmit = (e) => {
+        e.preventDefault();
+
+        console.log("Form submitted with data:", formData);
+        console.log("Form action:", formAction);
+
+        if (formAction === "create") {
+            monday.execute("notice", {
+                message: "Create functionality will be implemented",
+                type: "info",
+                timeout: 3000,
+            });
+        } else {
+            monday.execute("notice", {
+                message: `Update functionality will be implemented for item ${selectedItemId}`,
+                type: "info",
+                timeout: 3000,
+            });
+        }
+    };
+
+    const loadForm = () => {
+        console.log("loadForm called - creating dynamic form from validated sections");
+
+        const validSections = validatedSections.filter((section) => section.isFullyValid && section.sectionData && section.sectionData.fields);
+
+        if (validSections.length === 0) {
+            return (
+                <div className="error-box">
+                    <h3>⚠️ Cannot Create Form</h3>
+                    <p>No valid sections found. Please check your page layout configuration.</p>
+                    {validationSummary && (
+                        <p className="error-details">
+                            Sections with errors: {validationSummary.sectionsWithInvalidFields} invalid fields, {validationSummary.sectionsWithDuplicates}{" "}
+                            duplicates
+                        </p>
+                    )}
+                </div>
+            );
+        }
+
+        return (
+            <div className="form-container">
+                {/* Header */}
+                {formAction === "update" && selectedItem && (
+                    <div className="editing-banner">
+                        <p>
+                            ✏️ Editing: <strong>{selectedItem.name}</strong> (ID: {selectedItem.id})
                         </p>
                     </div>
                 )}
 
-                {/* TODO: Loop through pageLayoutItems and create form fields */}
-                <div style={{ marginTop: 10, color: "#666" }}>
-                    <em>Form fields will be rendered here based on page layout configuration</em>
-                </div>
+                {/* Dynamic Form */}
+                <form onSubmit={handleFormSubmit}>
+                    {validSections.map((section) => {
+                        const sectionId = section.sectionData.id;
+                        const isCollapsed = collapsedSections[sectionId] || false;
 
-                {/* Placeholder form */}
-                <form style={{ marginTop: 20 }}>
-                    <div style={{ marginBottom: 15 }}>
-                        <label style={{ display: "block", marginBottom: 5 }}>Item Name:</label>
-                        <input
-                            type="text"
-                            placeholder="Enter item name"
-                            defaultValue={selectedItem ? selectedItem.name : ""}
-                            style={{ padding: 8, width: "100%", maxWidth: 400 }}
-                        />
+                        const validFields = section.sectionData.fields.filter((field) => field.isValid === true && field.duplicate === false);
+
+                        if (validFields.length === 0) return null;
+
+                        return (
+                            <div key={sectionId} className="section-container">
+                                {/* Section Header (Collapsible) */}
+                                <div className="section-header" onClick={() => toggleSection(sectionId)}>
+                                    <h3>
+                                        {section.sectionData.title}
+                                        <span className="field-count">
+                                            ({validFields.length} field{validFields.length !== 1 ? "s" : ""})
+                                        </span>
+                                    </h3>
+                                    <span className="collapse-icon">{isCollapsed ? "▼" : "▲"}</span>
+                                </div>
+
+                                {/* Section Content */}
+                                {!isCollapsed && (
+                                    <div className="section-content">
+                                        <div className="fields-grid">
+                                            {validFields.map((field) => (
+                                                <div key={field.id} className="field-wrapper">
+                                                    <label className="field-label">
+                                                        {field.label}
+                                                        {field.isDefault === "true" && <span className="required-asterisk">*</span>}
+                                                    </label>
+                                                    {renderField(field)}
+                                                    <div className="field-type-hint">Type: {field.type}</div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
+
+                    {/* Form Actions */}
+                    <div className="form-actions">
+                        <button type="submit" className="btn-primary">
+                            {formAction === "create" ? "✓ Create Item" : "✓ Update Item"}
+                        </button>
+
+                        <button type="button" onClick={() => setFormData({})} className="btn-secondary">
+                            Clear Form
+                        </button>
                     </div>
-
-                    <button
-                        type="submit"
-                        style={{
-                            padding: "10px 20px",
-                            backgroundColor: "#0073ea",
-                            color: "white",
-                            border: "none",
-                            borderRadius: 4,
-                            cursor: "pointer",
-                        }}
-                    >
-                        {formAction === "create" ? "Create Item" : "Update Item"}
-                    </button>
                 </form>
+
+                {/* REMOVED: Validation Summary */}
             </div>
         );
     };
 
     return (
         <div className="App">
-            {/* If no boardId available from context, show a dropdown to pick one */}
             {!boardId ? (
-                <div style={{ marginTop: 16 }}>
-                    <label style={{ display: "block", marginBottom: 8 }}>Select a board to continue:</label>
+                <div className="board-selector">
+                    <label>Select a board to continue:</label>
                     <select
                         onChange={(e) => {
                             const chosenId = e.target.value;
@@ -258,87 +424,56 @@ const App = () => {
                     </select>
                 </div>
             ) : (
-                // When boardId is available
-                <div style={{ marginTop: 20 }}>
-                    <h2>{selectedBoardName ? `${selectedBoardName} Information` : "Board Information"}</h2>
+                <div className="main-content">
+                    {/* REMOVED: Board Information heading */}
 
-                    {/* Loading State */}
                     {pageLayoutLoading && (
-                        <div style={{ padding: 20, textAlign: "center" }}>
+                        <div className="loading-state">
                             <p>Loading page layout...</p>
                         </div>
                     )}
 
-                    {/* Error State */}
                     {!pageLayoutLoading && pageLayoutError && (
-                        <div
-                            style={{
-                                padding: 20,
-                                backgroundColor: "#fff3cd",
-                                border: "1px solid #ffc107",
-                                borderRadius: 8,
-                                marginTop: 20,
-                            }}
-                        >
-                            <h3 style={{ color: "#856404" }}>⚠️ Error Loading Page Layout</h3>
-                            <p style={{ color: "#856404" }}>{pageLayoutError}</p>
+                        <div className="error-box warning">
+                            <h3>⚠️ Error Loading Page Layout</h3>
+                            <p>{pageLayoutError}</p>
                         </div>
                     )}
 
-                    {/* No Page Layout Found */}
-                    {!pageLayoutLoading && !pageLayoutError && pageLayoutItems.length === 0 && (
-                        <div
-                            style={{
-                                padding: 20,
-                                backgroundColor: "#f8d7da",
-                                border: "1px solid #f5c6cb",
-                                borderRadius: 8,
-                                marginTop: 20,
-                            }}
-                        >
-                            <h3 style={{ color: "#721c24" }}>❌ Page Layout Information Not Found</h3>
-                            <p style={{ color: "#721c24" }}>
+                    {!pageLayoutLoading && !pageLayoutError && validatedSections.length === 0 && (
+                        <div className="error-box danger">
+                            <h3>❌ Page Layout Information Not Found</h3>
+                            <p>
                                 No page layout configuration found for board: <strong>{selectedBoardName}</strong>
                             </p>
-                            <p style={{ color: "#721c24", fontSize: 14, marginTop: 10 }}>Board ID: {boardId}</p>
+                            <p className="board-id-hint">Board ID: {boardId}</p>
                         </div>
                     )}
 
-                    {/* Page Layout Found - Show Create/Update Options */}
-                    {!pageLayoutLoading && !pageLayoutError && pageLayoutItems.length > 0 && (
+                    {!pageLayoutLoading && !pageLayoutError && validatedSections.length > 0 && (
                         <div>
                             {/* Create or Update Radio Buttons */}
-                            <div
-                                style={{
-                                    padding: 20,
-                                    backgroundColor: "#f8f9fa",
-                                    border: "1px solid #dee2e6",
-                                    borderRadius: 8,
-                                    marginBottom: 20,
-                                }}
-                            >
-                                <h3 style={{ marginTop: 0 }}>Select Action:</h3>
-                                <div style={{ display: "flex", gap: 20 }}>
-                                    <label style={{ display: "flex", alignItems: "center", cursor: "pointer" }}>
+                            <div className="action-selector">
+                                <h3>Select Action:</h3>
+                                <div className="radio-group">
+                                    <label className="radio-label">
                                         <input
                                             type="radio"
                                             name="formAction"
                                             value="create"
                                             checked={formAction === "create"}
                                             onChange={handleFormActionChange}
-                                            style={{ marginRight: 8 }}
                                         />
                                         <span>Create New Record</span>
                                     </label>
 
-                                    <label style={{ display: "flex", alignItems: "center", cursor: "pointer" }}>
+                                    <label className="radio-label">
                                         <input
                                             type="radio"
                                             name="formAction"
                                             value="update"
                                             checked={formAction === "update"}
                                             onChange={handleFormActionChange}
-                                            style={{ marginRight: 8 }}
                                         />
                                         <span>Update Existing Record</span>
                                     </label>
@@ -347,48 +482,24 @@ const App = () => {
 
                             {/* Item Selection Dropdown (Update Mode Only) */}
                             {formAction === "update" && (
-                                <div
-                                    style={{
-                                        padding: 20,
-                                        backgroundColor: "#fff",
-                                        border: "1px solid #dee2e6",
-                                        borderRadius: 8,
-                                        marginBottom: 20,
-                                    }}
-                                >
-                                    <h3 style={{ marginTop: 0 }}>Select Item to Update:</h3>
+                                <div className="item-selector">
+                                    <h3>Select Item to Update:</h3>
 
                                     {loadingItems && <p>Loading items...</p>}
 
                                     {itemsError && (
-                                        <div
-                                            style={{
-                                                padding: 10,
-                                                backgroundColor: "#f8d7da",
-                                                borderRadius: 4,
-                                                marginBottom: 10,
-                                            }}
-                                        >
-                                            <p style={{ color: "#721c24", margin: 0 }}>Error: {itemsError}</p>
+                                        <div className="error-inline">
+                                            <p>Error: {itemsError}</p>
                                         </div>
                                     )}
 
-                                    {!loadingItems && !itemsError && boardItems.length === 0 && <p style={{ color: "#666" }}>No items found in this board.</p>}
+                                    {!loadingItems && !itemsError && boardItems.length === 0 && (
+                                        <p className="no-items-message">No items found in this board.</p>
+                                    )}
 
                                     {!loadingItems && !itemsError && boardItems.length > 0 && (
                                         <div>
-                                            <select
-                                                value={selectedItemId}
-                                                onChange={handleItemSelection}
-                                                style={{
-                                                    padding: 10,
-                                                    width: "100%",
-                                                    maxWidth: 500,
-                                                    fontSize: 14,
-                                                    borderRadius: 4,
-                                                    border: "1px solid #ccc",
-                                                }}
-                                            >
+                                            <select value={selectedItemId} onChange={handleItemSelection} className="item-dropdown">
                                                 <option value="">-- Select an item --</option>
                                                 {boardItems.map((item) => (
                                                     <option key={item.id} value={item.id}>
@@ -397,21 +508,13 @@ const App = () => {
                                                 ))}
                                             </select>
 
-                                            <p
-                                                style={{
-                                                    marginTop: 10,
-                                                    fontSize: 13,
-                                                    color: "#666",
-                                                }}
-                                            >
-                                                Found {boardItems.length} item(s) in board
-                                            </p>
+                                            <p className="item-count-hint">Found {boardItems.length} item(s) in board</p>
                                         </div>
                                     )}
                                 </div>
                             )}
 
-                            {/* Load Dynamic Form (only if Create mode OR item is selected in Update mode) */}
+                            {/* Load Dynamic Form */}
                             {(formAction === "create" || (formAction === "update" && selectedItemId)) && loadForm()}
                         </div>
                     )}

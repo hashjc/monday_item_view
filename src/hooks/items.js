@@ -8,7 +8,6 @@ const LIMIT = 500;
 
 /**
  * Retrieve all items from a specific board
-
  *
  * @param {string} boardId - The board ID to fetch items from
  * @returns {Promise<Object>} { success, error, items }

@@ -1,12 +1,396 @@
+/* ===========================
+   GLOBAL STYLES
+   =========================== */
 body {
   margin: 0;
   font-family: "Roboto", sans-serif;
+  background-color: #f8f9fa;
 }
 
+* {
+  box-sizing: border-box;
+}
+
+/* ===========================
+   APP CONTAINER
+   =========================== */
 .App {
-  height: 100vh;
-  width: 100vw;
+  min-height: 100vh;
+  width: 100%;
+  padding: 20px;
+}
+
+/* ===========================
+   MAIN CONTENT AREA
+   =========================== */
+.main-content {
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* ===========================
+   BOARD SELECTOR
+   =========================== */
+.board-selector {
+  max-width: 500px;
+  margin: 20px auto;
+}
+
+.board-selector label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 500;
+}
+
+.board-selector select {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+/* ===========================
+   ACTION SELECTOR (Radio Buttons)
+   =========================== */
+.action-selector {
+  padding: 20px;
+  background-color: #ffffff;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  margin-bottom: 20px;
+}
+
+.action-selector h3 {
+  margin-top: 0;
+  margin-bottom: 15px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.radio-group {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.radio-label {
   display: flex;
   align-items: center;
-  justify-content: center;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.radio-label input {
+  margin-right: 8px;
+}
+
+/* ===========================
+   ITEM SELECTOR (Update Mode)
+   =========================== */
+.item-selector {
+  padding: 20px;
+  background-color: #ffffff;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  margin-bottom: 20px;
+}
+
+.item-selector h3 {
+  margin-top: 0;
+  margin-bottom: 15px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.item-dropdown {
+  padding: 10px;
+  width: 100%;
+  max-width: 500px;
+  font-size: 14px;
+  border-radius: 4px;
+  border: 1px solid #ccc;
+}
+
+.item-count-hint {
+  margin-top: 10px;
+  font-size: 13px;
+  color: #666;
+}
+
+.no-items-message {
+  color: #666;
+  font-style: italic;
+}
+
+.error-inline {
+  padding: 10px;
+  background-color: #f8d7da;
+  border-radius: 4px;
+  margin-bottom: 10px;
+}
+
+.error-inline p {
+  color: #721c24;
+  margin: 0;
+}
+
+/* ===========================
+   FORM CONTAINER
+   =========================== */
+.form-container {
+  margin-top: 20px;
+}
+
+/* ===========================
+   EDITING BANNER
+   =========================== */
+.editing-banner {
+  padding: 15px;
+  background-color: #d4edda;
+  border: 1px solid #c3e6cb;
+  border-radius: 8px;
+  margin-bottom: 20px;
+}
+
+.editing-banner p {
+  margin: 0;
+  color: #155724;
+  font-size: 14px;
+}
+
+/* ===========================
+   SECTION CONTAINER
+   =========================== */
+.section-container {
+  margin-bottom: 20px;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  overflow: hidden;
+  background-color: #ffffff;
+}
+
+/* ===========================
+   SECTION HEADER (Collapsible)
+   =========================== */
+.section-header {
+  padding: 15px 20px;
+  background-color: #f8f9fa;
+  border-bottom: 1px solid #dee2e6;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  user-select: none;
+  transition: background-color 0.2s;
+}
+
+.section-header:hover {
+  background-color: #e9ecef;
+}
+
+.section-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #333;
+}
+
+.field-count {
+  margin-left: 8px;
+  font-size: 13px;
+  font-weight: 400;
+  color: #666;
+}
+
+.collapse-icon {
+  font-size: 20px;
+  color: #666;
+}
+
+/* ===========================
+   SECTION CONTENT
+   =========================== */
+.section-content {
+  padding: 20px;
+}
+
+/* ===========================
+   FIELDS GRID - RESPONSIVE
+   Mobile: 1 column
+   Tablet+: 2 columns
+   =========================== */
+.fields-grid {
+  display: grid;
+  grid-template-columns: 1fr; /* Mobile: 1 column */
+  gap: 20px;
+}
+
+/* Medium screens and up: 2 columns */
+@media (min-width: 768px) {
+  .fields-grid {
+    grid-template-columns: repeat(2, 1fr); /* Tablet+: 2 columns */
+  }
+}
+
+/* ===========================
+   FIELD WRAPPER
+   =========================== */
+.field-wrapper {
+  display: flex;
+  flex-direction: column;
+}
+
+.field-label {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 500;
+  font-size: 14px;
+  color: #333;
+}
+
+.required-asterisk {
+  margin-left: 6px;
+  color: #dc3545;
+  font-size: 13px;
+}
+
+.field-type-hint {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #999;
+}
+
+/* ===========================
+   FORM ACTIONS
+   =========================== */
+.form-actions {
+  margin-top: 30px;
+  padding: 20px;
+  background-color: #f8f9fa;
+  border-radius: 8px;
+  display: flex;
+  gap: 15px;
+  flex-wrap: wrap;
+}
+
+.btn-primary {
+  padding: 12px 30px;
+  background-color: #0073ea;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.btn-primary:hover {
+  background-color: #005bb5;
+}
+
+.btn-secondary {
+  padding: 12px 30px;
+  background-color: #fff;
+  color: #666;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-secondary:hover {
+  background-color: #f8f9fa;
+  border-color: #999;
+}
+
+/* ===========================
+   ERROR BOXES
+   =========================== */
+.error-box {
+  padding: 20px;
+  border-radius: 8px;
+  margin-top: 20px;
+  margin-bottom: 20px;
+}
+
+.error-box h3 {
+  margin-top: 0;
+  margin-bottom: 10px;
+}
+
+.error-box.warning {
+  background-color: #fff3cd;
+  border: 1px solid #ffc107;
+}
+
+.error-box.warning h3,
+.error-box.warning p {
+  color: #856404;
+}
+
+.error-box.danger {
+  background-color: #f8d7da;
+  border: 1px solid #f5c6cb;
+}
+
+.error-box.danger h3,
+.error-box.danger p {
+  color: #721c24;
+}
+
+.error-details {
+  font-size: 13px;
+  margin-top: 10px;
+}
+
+.board-id-hint {
+  font-size: 14px;
+  margin-top: 10px;
+}
+
+/* ===========================
+   LOADING STATE
+   =========================== */
+.loading-state {
+  padding: 20px;
+  text-align: center;
+}
+
+/* ===========================
+   RESPONSIVE ADJUSTMENTS
+   =========================== */
+
+/* Tablet */
+@media (min-width: 768px) {
+  .App {
+    padding: 30px;
+  }
+
+  .action-selector,
+  .item-selector {
+    padding: 25px;
+  }
+}
+
+/* Desktop */
+@media (min-width: 1024px) {
+  .App {
+    padding: 40px;
+  }
+
+  .section-content {
+    padding: 30px;
+  }
+}
+
+/* Large Desktop */
+@media (min-width: 1440px) {
+  .main-content {
+    max-width: 1400px;
+  }
 }
