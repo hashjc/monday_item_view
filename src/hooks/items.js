@@ -113,7 +113,115 @@ export async function retrieveBoardItems(boardId) {
         };
     }
 }
+/**
+ * Retrieve board items by item name (partial match)
+ *
+ * @param {string} boardId - The board ID
+ * @param {string} itemName - The item name to search
+ * @returns {Promise<Object>} { success, error, items }
+ */
+export async function retrieveBoardItemsByItemName(boardId, itemName) {
+    console.log(`items.js [retrieveBoardItemsByItemName] Board: ${boardId}, Name: ${itemName}`);
 
+    // Validation
+    if (!boardId) {
+        return {
+            success: false,
+            error: "Board ID is required",
+            items: []
+        };
+    }
+
+    if (!itemName || itemName.trim() === "") {
+        return {
+            success: false,
+            error: "Item name is required",
+            items: []
+        };
+    }
+
+    try {
+        // Escape quotes to avoid breaking GraphQL
+        const safeItemName = itemName.replace(/"/g, '\\"');
+
+        const query = `
+            query {
+                boards(ids: ${boardId}) {
+                    items_page(
+                        limit: 100,
+                        query_params: {
+                            rules: [
+                                {
+                                    column_id: "name",
+                                    compare_value: ["${safeItemName}"],
+                                    operator: contains_text
+                                }
+                            ]
+                        }
+                    ) {
+                        items {
+                            id
+                            name
+                            board {
+                                id
+                                name
+                            }
+                            column_values {
+                                id
+                                text
+                                value
+                                type
+                                column {
+                                    id
+                                    title
+                                    type
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        `;
+
+        const response = await monday.api(query);
+
+        if (response.errors) {
+            return {
+                success: false,
+                error: response.errors[0].message || "Failed to search items",
+                items: []
+            };
+        }
+
+        const items =
+            response.data?.boards?.[0]?.items_page?.items || [];
+
+        if (items.length === 0) {
+            return {
+                success: false,
+                error: `No items found matching "${itemName}"`,
+                items: []
+            };
+        }
+
+        console.log(`[retrieveBoardItemsByItemName] Found ${items.length} item(s)`);
+
+        return {
+            success: true,
+            error: "",
+            items
+        };
+
+    } catch (error) {
+        console.error("[retrieveBoardItemsByItemName] Error:", error);
+
+        return {
+            success: false,
+            error: error.message || "Failed to search items",
+            items: []
+        };
+    }
+}
 /**
  * Retrieve a specific item by ID with all its column values
  *
