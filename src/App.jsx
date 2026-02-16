@@ -6,6 +6,7 @@ import "@vibe/core/tokens";
 import { useBoards } from "./hooks/useBoards";
 import { usePageLayoutInfo } from "./hooks/pageLayoutService";
 import { retrieveBoardItems, retrieveItemById } from "./hooks/items";
+import { getBoardColumns } from "./hooks/boardMetadata";
 
 const monday = mondaySdk();
 
@@ -25,6 +26,9 @@ const App = () => {
     const [formData, setFormData] = useState({});
     const [collapsedSections, setCollapsedSections] = useState({});
 
+    // Board columns metadata for dropdown/status options
+    const [boardColumns, setBoardColumns] = useState([]);
+
     useEffect(() => {
         monday.execute("valueCreatedForUser");
 
@@ -33,9 +37,6 @@ const App = () => {
             .then((res) => {
                 console.log("monday initial context:", res.data);
                 if (res && res.data) {
-                    console.log("Current user context:", res.data.user || res.data.currentUser || null);
-                    console.log("Current board context:", res.data.board || res.data.selectedBoard || null);
-
                     setContext(res.data);
 
                     const detectedBoardId =
@@ -56,11 +57,7 @@ const App = () => {
 
         monday.listen("context", (res) => {
             setContext(res.data);
-            console.log("monday context updated:", res.data);
             if (res && res.data) {
-                console.log("Updated user context:", res.data.user || res.data.currentUser || null);
-                console.log("Updated board context:", res.data.board || res.data.selectedBoard || null);
-
                 const updatedBoardId =
                     res.data.boardId || (res.data.board && res.data.board.id) || (res.data.selectedBoard && res.data.selectedBoard.id) || null;
 
@@ -72,6 +69,18 @@ const App = () => {
             }
         });
     }, []);
+
+    // Fetch board columns metadata when boardId changes
+    useEffect(() => {
+        if (!boardId) return;
+
+        getBoardColumns(boardId).then((result) => {
+            if (result.success) {
+                setBoardColumns(result.columns);
+                console.log("Board columns loaded:", result.columns);
+            }
+        });
+    }, [boardId]);
 
     const { boards: boardsFromHook } = useBoards();
     const boards = boardsFromHook || [];
@@ -140,7 +149,21 @@ const App = () => {
                 itemData["name"] = result.item.name;
 
                 result.item.column_values.forEach((col) => {
-                    itemData[col.id] = col.text || col.value || "";
+                    // For status/dropdown, store the ID(s) instead of text
+                    if (col.type === "status" || col.type === "dropdown") {
+                        try {
+                            const parsed = JSON.parse(col.value);
+                            if (col.type === "status") {
+                                itemData[col.id] = parsed.index || "";
+                            } else if (col.type === "dropdown") {
+                                itemData[col.id] = parsed.ids || [];
+                            }
+                        } catch (e) {
+                            itemData[col.id] = col.text || "";
+                        }
+                    } else {
+                        itemData[col.id] = col.text || col.value || "";
+                    }
                 });
 
                 setFormData(itemData);
@@ -171,8 +194,55 @@ const App = () => {
         }));
     };
 
+    /**
+     * Get column metadata by column ID
+     */
+    const getColumnMetadata = (columnId) => {
+        return boardColumns.find((col) => col.id === columnId);
+    };
+
+    /**
+     * Parse status column settings to get labels
+     */
+    const getStatusLabels = (columnId) => {
+        const column = getColumnMetadata(columnId);
+        if (!column || !column.settings_str) return [];
+
+        try {
+            const settings = JSON.parse(column.settings_str);
+            const labels = settings.labels || {};
+            const labelsColors = settings.labels_colors || {};
+
+            return Object.keys(labels).map((index) => ({
+                index: index,
+                label: labels[index],
+                color: labelsColors[index]?.color || "#ccc",
+            }));
+        } catch (e) {
+            console.error("Error parsing status settings:", e);
+            return [];
+        }
+    };
+
+    /**
+     * Parse dropdown column settings to get labels
+     */
+    const getDropdownLabels = (columnId) => {
+        const column = getColumnMetadata(columnId);
+        if (!column || !column.settings_str) return [];
+
+        try {
+            const settings = JSON.parse(column.settings_str);
+            return settings.labels || [];
+        } catch (e) {
+            console.error("Error parsing dropdown settings:", e);
+            return [];
+        }
+    };
+
     const renderField = (field) => {
         const value = formData[field.columnId] || "";
+        const columnMetadata = getColumnMetadata(field.columnId);
 
         const inputStyle = {
             padding: "8px 12px",
@@ -184,6 +254,69 @@ const App = () => {
         };
 
         switch (field.type) {
+            case "status": {
+                const labels = getStatusLabels(field.columnId);
+                return (
+                    <select value={value} onChange={(e) => handleFieldChange(field.columnId, e.target.value)} style={inputStyle}>
+                        <option value="">-- Select {field.label} --</option>
+                        {labels.map((label) => (
+                            <option key={label.index} value={label.index}>
+                                {label.label}
+                            </option>
+                        ))}
+                    </select>
+                );
+            }
+
+            case "dropdown": {
+                const labels = getDropdownLabels(field.columnId);
+                const dropdownValue = Array.isArray(value) ? value : value ? [value] : [];
+
+                // Check if multi-select is allowed
+                const settings = columnMetadata ? JSON.parse(columnMetadata.settings_str || "{}") : {};
+                const limitSelect = settings.limit_select;
+
+                if (limitSelect) {
+                    // Single select
+                    return (
+                        <select
+                            value={dropdownValue[0] || ""}
+                            onChange={(e) => handleFieldChange(field.columnId, [parseInt(e.target.value)])}
+                            style={inputStyle}
+                        >
+                            <option value="">-- Select {field.label} --</option>
+                            {labels.map((label) => (
+                                <option key={label.id} value={label.id}>
+                                    {label.name}
+                                </option>
+                            ))}
+                        </select>
+                    );
+                } else {
+                    // Multi-select
+                    return (
+                        <select
+                            multiple
+                            value={dropdownValue.map(String)}
+                            onChange={(e) => {
+                                const selected = Array.from(e.target.selectedOptions).map((opt) => parseInt(opt.value));
+                                handleFieldChange(field.columnId, selected);
+                            }}
+                            style={{
+                                ...inputStyle,
+                                minHeight: "100px",
+                            }}
+                        >
+                            {labels.map((label) => (
+                                <option key={label.id} value={label.id}>
+                                    {label.name}
+                                </option>
+                            ))}
+                        </select>
+                    );
+                }
+            }
+
             case "name":
             case "text":
                 return (
@@ -254,7 +387,6 @@ const App = () => {
                     />
                 );
 
-            case "status":
             case "people":
             case "board_relation":
             case "doc":
@@ -281,30 +413,273 @@ const App = () => {
         }
     };
 
-    const handleFormSubmit = (e) => {
+    /**
+     * Create a new item in Monday.com
+     */
+    const createItem = async (recordValues) => {
+        console.log("Creating item with values:", recordValues);
+
+        try {
+            // Extract item name
+            const itemName = recordValues.name || "New Item";
+
+            // Build column values JSON
+            const columnValues = {};
+
+            Object.keys(recordValues).forEach((columnId) => {
+                if (columnId === "name") return; // Skip name as it's separate
+
+                const value = recordValues[columnId];
+                const columnMeta = getColumnMetadata(columnId);
+
+                if (!columnMeta) return;
+                // Skip empty values
+                if (value === "" || value === null || value === undefined) {
+                    console.log(`Skipping empty value for column: ${columnId}`);
+                    return;
+                }
+                // Format value based on column type
+                switch (columnMeta.type) {
+                    case "status":
+                        // Status expects: {"index": 1}
+                        const statusIndex = parseInt(value);
+                        if (!isNaN(statusIndex)) {
+                            columnValues[columnId] = { index: statusIndex };
+                        }
+                        break;
+
+                    case "dropdown":
+                        // Dropdown expects: {"ids": [1, 2, 3]}
+                        const ids = Array.isArray(value) ? value : [value];
+                        const validIds = ids.filter((id) => id !== "" && id !== null).map((id) => parseInt(id));
+                        if (validIds.length > 0) {
+                            columnValues[columnId] = { ids: validIds };
+                        }
+                        break;
+
+                    case "checkbox":
+                        // Checkbox expects: {"checked": "true"}
+                        columnValues[columnId] = { checked: value ? "true" : "false" };
+                        break;
+
+                    case "date":
+                        // Date expects: {"date": "2023-01-15"}
+                        if (value.trim() !== "") {
+                            columnValues[columnId] = { date: value };
+                        }
+                        break;
+
+                    case "numbers":
+                        // Numbers expects: "42"
+                        columnValues[columnId] = String(value);
+                        break;
+
+                    case "text":
+                    case "long_text":
+                        // Text expects: "text value"
+                        columnValues[columnId] = String(value);
+                        break;
+
+                    default:
+                        // Generic string value
+                        columnValues[columnId] = String(value);
+                }
+            });
+            // NOW stringify once at the end
+            const columnValuesJSON = JSON.stringify(columnValues);
+
+            console.log("Column values object:", columnValues);
+            console.log("Column values JSON:", columnValuesJSON);
+
+            const mutation = `
+                mutation($boardId: ID!, $itemName: String!, $columnValues: JSON!) {
+                    create_item(
+                        board_id: $boardId
+                        item_name: $itemName
+                        column_values: $columnValues
+                    ) {
+                        id
+                        name
+                    }
+                }
+            `;
+
+            const variables = {
+                boardId: boardId,
+                itemName: itemName,
+                columnValues: columnValuesJSON,
+            };
+
+            console.log("=== DEBUG: Full mutation request ===");
+            console.log("Mutation:", mutation);
+            console.log("Variables:", variables);
+            console.log("Parsed column values:", JSON.parse(variables.columnValues));
+
+            const response = await monday.api(mutation, { variables });
+
+            if (response.data && response.data.create_item) {
+                console.log("Item created successfully:", response.data.create_item);
+                monday.execute("notice", {
+                    message: `Item "${response.data.create_item.name}" created successfully!`,
+                    type: "success",
+                    timeout: 5000,
+                });
+
+                // Clear form
+                setFormData({});
+
+                return { success: true, item: response.data.create_item };
+            } else {
+                throw new Error("Failed to create item");
+            }
+        } catch (error) {
+            console.error("Error creating item:", error);
+            monday.execute("notice", {
+                message: `Error creating item: ${error.message}`,
+                type: "error",
+                timeout: 5000,
+            });
+            return { success: false, error: error.message };
+        }
+    };
+
+    /**
+     * Update an existing item in Monday.com
+     */
+    const updateItem = async (itemId, recordValues) => {
+        console.log("Updating item", itemId, "with values:", recordValues);
+
+        try {
+            // Build column values updates
+            const updates = [];
+
+            Object.keys(recordValues).forEach((columnId) => {
+                if (columnId === "name") {
+                    // Update item name separately if changed
+                    if (recordValues.name && recordValues.name !== selectedItem.name) {
+                        updates.push({
+                            mutation: `
+                                mutation($itemId: ID!, $boardId: ID!, $name: String!) {
+                                    change_multiple_column_values(
+                                        item_id: $itemId
+                                        board_id: $boardId
+                                        column_values: "{}"
+                                        create_labels_if_missing: false
+                                    ) {
+                                        id
+                                    }
+                                }
+                            `,
+                            variables: {
+                                itemId: itemId,
+                                boardId: boardId,
+                                name: recordValues.name,
+                            },
+                        });
+                    }
+                    return;
+                }
+
+                const value = recordValues[columnId];
+                const columnMeta = getColumnMetadata(columnId);
+
+                if (!columnMeta || !value) return;
+
+                // Format value based on column type (same as create)
+                let formattedValue;
+                switch (columnMeta.type) {
+                    case "status":
+                        formattedValue = JSON.stringify({ index: parseInt(value) });
+                        break;
+                    case "dropdown":
+                        const ids = Array.isArray(value) ? value : [value];
+                        formattedValue = JSON.stringify({ ids: ids.filter((id) => id !== "") });
+                        break;
+                    case "checkbox":
+                        formattedValue = JSON.stringify({ checked: value ? "true" : "false" });
+                        break;
+                    case "date":
+                        formattedValue = JSON.stringify({ date: value });
+                        break;
+                    default:
+                        formattedValue = String(value);
+                }
+
+                updates.push({
+                    columnId: columnId,
+                    value: formattedValue,
+                });
+            });
+
+            // Execute update mutation
+            const columnValues = {};
+            updates.forEach((update) => {
+                if (update.columnId) {
+                    columnValues[update.columnId] = update.value;
+                }
+            });
+
+            const mutation = `
+                mutation($boardId: ID!, $itemId: ID!, $columnValues: JSON!) {
+                    change_multiple_column_values(
+                        board_id: $boardId
+                        item_id: $itemId
+                        column_values: $columnValues
+                        create_labels_if_missing: false
+                    ) {
+                        id
+                        name
+                    }
+                }
+            `;
+
+            const variables = {
+                boardId: boardId,
+                itemId: itemId,
+                columnValues: JSON.stringify(columnValues),
+            };
+
+            console.log("Update mutation variables:", variables);
+
+            const response = await monday.api(mutation, { variables });
+
+            if (response.data && response.data.change_multiple_column_values) {
+                console.log("Item updated successfully:", response.data.change_multiple_column_values);
+                monday.execute("notice", {
+                    message: `Item updated successfully!`,
+                    type: "success",
+                    timeout: 5000,
+                });
+
+                return { success: true, item: response.data.change_multiple_column_values };
+            } else {
+                throw new Error("Failed to update item");
+            }
+        } catch (error) {
+            console.error("Error updating item:", error);
+            monday.execute("notice", {
+                message: `Error updating item: ${error.message}`,
+                type: "error",
+                timeout: 5000,
+            });
+            return { success: false, error: error.message };
+        }
+    };
+
+    const handleFormSubmit = async (e) => {
         e.preventDefault();
 
         console.log("Form submitted with data:", formData);
         console.log("Form action:", formAction);
 
         if (formAction === "create") {
-            monday.execute("notice", {
-                message: "Create functionality will be implemented",
-                type: "info",
-                timeout: 3000,
-            });
-        } else {
-            monday.execute("notice", {
-                message: `Update functionality will be implemented for item ${selectedItemId}`,
-                type: "info",
-                timeout: 3000,
-            });
+            await createItem(formData);
+        } else if (formAction === "update" && selectedItemId) {
+            await updateItem(selectedItemId, formData);
         }
     };
 
     const loadForm = () => {
-        console.log("loadForm called - creating dynamic form from validated sections");
-
         const validSections = validatedSections.filter((section) => section.isFullyValid && section.sectionData && section.sectionData.fields);
 
         if (validSections.length === 0) {
@@ -312,19 +687,12 @@ const App = () => {
                 <div className="error-box">
                     <h3>⚠️ Cannot Create Form</h3>
                     <p>No valid sections found. Please check your page layout configuration.</p>
-                    {validationSummary && (
-                        <p className="error-details">
-                            Sections with errors: {validationSummary.sectionsWithInvalidFields} invalid fields, {validationSummary.sectionsWithDuplicates}{" "}
-                            duplicates
-                        </p>
-                    )}
                 </div>
             );
         }
 
         return (
             <div className="form-container">
-                {/* Header */}
                 {formAction === "update" && selectedItem && (
                     <div className="editing-banner">
                         <p>
@@ -333,7 +701,6 @@ const App = () => {
                     </div>
                 )}
 
-                {/* Dynamic Form */}
                 <form onSubmit={handleFormSubmit}>
                     {validSections.map((section) => {
                         const sectionId = section.sectionData.id;
@@ -345,7 +712,6 @@ const App = () => {
 
                         return (
                             <div key={sectionId} className="section-container">
-                                {/* Section Header (Collapsible) */}
                                 <div className="section-header" onClick={() => toggleSection(sectionId)}>
                                     <h3>
                                         {section.sectionData.title}
@@ -356,7 +722,6 @@ const App = () => {
                                     <span className="collapse-icon">{isCollapsed ? "▼" : "▲"}</span>
                                 </div>
 
-                                {/* Section Content */}
                                 {!isCollapsed && (
                                     <div className="section-content">
                                         <div className="fields-grid">
@@ -377,7 +742,6 @@ const App = () => {
                         );
                     })}
 
-                    {/* Form Actions */}
                     <div className="form-actions">
                         <button type="submit" className="btn-primary">
                             {formAction === "create" ? "✓ Create Item" : "✓ Update Item"}
@@ -388,8 +752,6 @@ const App = () => {
                         </button>
                     </div>
                 </form>
-
-                {/* REMOVED: Validation Summary */}
             </div>
         );
     };
@@ -405,7 +767,6 @@ const App = () => {
                             setBoardId(chosenId);
                             const chosen = boards.find((b) => String(b.id) === chosenId);
                             setSelectedBoardName(chosen ? chosen.name : "");
-                            console.log("User selected board id:", chosenId, "board:", chosen);
                         }}
                         defaultValue=""
                     >
@@ -425,8 +786,6 @@ const App = () => {
                 </div>
             ) : (
                 <div className="main-content">
-                    {/* REMOVED: Board Information heading */}
-
                     {pageLayoutLoading && (
                         <div className="loading-state">
                             <p>Loading page layout...</p>
@@ -446,13 +805,11 @@ const App = () => {
                             <p>
                                 No page layout configuration found for board: <strong>{selectedBoardName}</strong>
                             </p>
-                            <p className="board-id-hint">Board ID: {boardId}</p>
                         </div>
                     )}
 
                     {!pageLayoutLoading && !pageLayoutError && validatedSections.length > 0 && (
                         <div>
-                            {/* Create or Update Radio Buttons */}
                             <div className="action-selector">
                                 <h3>Select Action:</h3>
                                 <div className="radio-group">
@@ -480,7 +837,6 @@ const App = () => {
                                 </div>
                             </div>
 
-                            {/* Item Selection Dropdown (Update Mode Only) */}
                             {formAction === "update" && (
                                 <div className="item-selector">
                                     <h3>Select Item to Update:</h3>
@@ -514,7 +870,6 @@ const App = () => {
                                 </div>
                             )}
 
-                            {/* Load Dynamic Form */}
                             {(formAction === "create" || (formAction === "update" && selectedItemId)) && loadForm()}
                         </div>
                     )}

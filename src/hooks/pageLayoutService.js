@@ -39,18 +39,12 @@ async function getBoardColumnIdsByTitles(boardId, titles) {
 /**
  * Validate page layout sections against board's column metadata
  *
- * VALIDATION RULES:
- * 1. Check if columnId exists in board's actual columns
- * 2. Mark as isValid: true/false
- * 3. Detect duplicate columnIds across all sections
- * 4. Mark duplicates with duplicate: true
- *
  * @param {Array} pageLayoutSectionRecords - Raw records from PageLayout board
  * @param {string} boardId - Target board ID
  * @returns {Promise<Object>} { success, error, validatedSections }
  */
 async function checkPageLayoutColumnValidity(pageLayoutSectionRecords, boardId) {
-    console.log(`[checkPageLayoutColumnValidity] Validating ${pageLayoutSectionRecords.length} section records for board ${boardId}`);
+    console.log(`PageLayoutService Validating ${pageLayoutSectionRecords.length} section records for board ${boardId}`);
 
     try {
         // Step 1: Get board's actual column metadata
@@ -66,7 +60,153 @@ async function checkPageLayoutColumnValidity(pageLayoutSectionRecords, boardId) 
         }
 
         const boardColumns = boardColumnsResult.columns;
-        console.log(`[checkPageLayoutColumnValidity] Found ${boardColumns.length} columns in board metadata`);
+        console.log("PageLayoutService : Board columns ", boardColumns);
+
+        // --- NEW LOGIC: Create a Map for quick title/label lookup by column ID ---
+        const boardColumnMetadataMap = new Map(
+            boardColumns.map((col) => [col.id, col.title])
+        );
+
+        const validColumnIds = new Set(boardColumns.map((col) => col.id));
+        const columnIdUsageMap = {};
+        const validatedSections = [];
+
+        // Step 3: Parse and validate each section record
+        for (const record of pageLayoutSectionRecords) {
+            try {
+                const sectionsColumn = record.column_values.find((cv) => cv.column && cv.column.title === PAGELAYOUT_COL_TITLE_SECTIONS);
+
+                if (!sectionsColumn || !sectionsColumn.text) continue;
+
+                let sectionData;
+                try {
+                    sectionData = JSON.parse(sectionsColumn.text);
+                } catch (parseError) {
+                    validatedSections.push({
+                        recordId: record.id,
+                        recordName: record.name,
+                        error: "Invalid JSON format",
+                        isValid: false,
+                        originalData: record,
+                    });
+                    continue;
+                }
+
+                if (!sectionData.id || !sectionData.title || !Array.isArray(sectionData.fields)) {
+                    validatedSections.push({
+                        recordId: record.id,
+                        recordName: record.name,
+                        error: "Invalid section structure",
+                        isValid: false,
+                        originalData: record,
+                    });
+                    continue;
+                }
+
+                // Track column usage
+                sectionData.fields.forEach((field) => {
+                    if (field.columnId) {
+                        columnIdUsageMap[field.columnId] = (columnIdUsageMap[field.columnId] || 0) + 1;
+                    }
+                });
+
+                validatedSections.push({
+                    recordId: record.id,
+                    recordName: record.name,
+                    sectionData: sectionData,
+                    originalData: record,
+                    isValid: true,
+                });
+            } catch (error) {
+                validatedSections.push({
+                    recordId: record.id,
+                    recordName: record.name,
+                    error: error.message,
+                    isValid: false,
+                    originalData: record,
+                });
+            }
+        }
+
+        // Step 4: Validate each field's columnId, mark duplicates, and APPLY DEFAULT LABELS
+        console.log("Applying default column/field title labels");
+        for (const section of validatedSections) {
+            if (!section.sectionData || !section.sectionData.fields) continue;
+
+            section.sectionData.fields = section.sectionData.fields.map((field) => {
+                const columnId = field.columnId;
+                let currentLabel = field.label;
+
+                // --- NEW LOGIC: Apply default column label if label is blank ---
+                if (!currentLabel || currentLabel.trim() === "") {
+                    // Lookup the original title from board metadata using the columnId
+                    const defaultTitle = boardColumnMetadataMap.get(columnId);
+                    if (defaultTitle) {
+                        currentLabel = defaultTitle;
+                        console.log(`Defaulting blank label for field ID ${columnId} to "${defaultTitle}"`);
+                    }
+                }
+
+                const isValidColumnId = validColumnIds.has(columnId);
+                const isDuplicate = columnIdUsageMap[columnId] > 1;
+
+                return {
+                    ...field,
+                    label: currentLabel, // Use the potentially updated label
+                    isValid: isValidColumnId,
+                    duplicate: isDuplicate,
+                    validationError: !isValidColumnId ? `Column '${columnId}' does not exist in board` : null,
+                };
+            });
+
+            const hasInvalidFields = section.sectionData.fields.some((f) => !f.isValid);
+            const hasDuplicateFields = section.sectionData.fields.some((f) => f.duplicate);
+
+            section.hasInvalidFields = hasInvalidFields;
+            section.hasDuplicateFields = hasDuplicateFields;
+            section.isFullyValid = !hasInvalidFields && !hasDuplicateFields;
+        }
+
+        return {
+            success: true,
+            error: null,
+            validatedSections: validatedSections,
+            validationSummary: {
+                totalSections: validatedSections.length,
+                fullyValidSections: validatedSections.filter((s) => s.isFullyValid).length,
+            },
+        };
+    } catch (error) {
+        console.error("[checkPageLayoutColumnValidity] Validation error:", error);
+        return {
+            success: false,
+            error: error.message || "Validation failed",
+            validatedSections: [],
+        };
+    }
+}
+
+/*
+async function checkPageLayoutColumnValidity(pageLayoutSectionRecords, boardId) {
+    console.log(`PageLayoutService Validating ${pageLayoutSectionRecords.length} section records for board ${boardId}`);
+    console.log(`PageLayoutService Validating ${pageLayoutSectionRecords}`);
+
+    try {
+        // Step 1: Get board's actual column metadata
+        const boardColumnsResult = await getBoardColumns(boardId);
+
+        if (!boardColumnsResult?.success || !boardColumnsResult?.columns || !Array.isArray(boardColumnsResult.columns)) {
+            console.error("[checkPageLayoutColumnValidity] Failed to fetch board columns");
+            return {
+                success: false,
+                error: "Could not fetch board column metadata",
+                validatedSections: [],
+            };
+        }
+
+        const boardColumns = boardColumnsResult.columns;
+        console.log("PageLayoutService : Board columns ", boardColumns);
+        console.log(`PageLayoutService [checkPageLayoutColumnValidity] Found ${boardColumns.length} columns in board metadata`);
 
         // Create a map of valid column IDs for quick lookup
         const validColumnIds = new Set(boardColumns.map((col) => col.id));
@@ -147,11 +287,14 @@ async function checkPageLayoutColumnValidity(pageLayoutSectionRecords, boardId) 
         }
 
         // Step 4: Validate each field's columnId and mark duplicates
+        console.log("Apply default column/field title label ");
         for (const section of validatedSections) {
             if (!section.sectionData || !section.sectionData.fields) continue;
 
             section.sectionData.fields = section.sectionData.fields.map((field) => {
                 const columnId = field.columnId;
+                let currentLabel = field.label;
+                //Apply default column label if label is blank.
 
                 // Check if column exists in board metadata
                 const isValidColumnId = validColumnIds.has(columnId);
@@ -210,6 +353,7 @@ async function checkPageLayoutColumnValidity(pageLayoutSectionRecords, boardId) 
         };
     }
 }
+*/
 
 /**
  * Retrieve page layout information for a specific board using server-side filtering
