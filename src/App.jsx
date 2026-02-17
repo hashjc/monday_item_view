@@ -242,32 +242,6 @@ const App = () => {
     // Close lookups on outside click
     useEffect(() => {
         const handleClickOutside = (event) => {
-            /*
-            if (!event.target.closest(".relation-lookup-container")) {
-                setRelationLookups((prev) => {
-                    const newState = { ...prev };
-                    let changed = false;
-                    Object.keys(newState).forEach((key) => {
-                        if (newState[key].isOpen) {
-                            newState[key].isOpen = false;
-                            changed = true;
-                        }
-                    });
-                    return changed ? newState : prev;
-                });
-                setPeopleLookups((prev) => {
-                    const newState = { ...prev };
-                    let changed = false;
-                    Object.keys(newState).forEach((key) => {
-                        if (newState[key].isOpen) {
-                            newState[key].isOpen = false;
-                            changed = true;
-                        }
-                    });
-                    return changed ? newState : prev;
-                });
-            }
-            */
             // Check if click is outside ANY lookup container
             if (!event.target.closest(".relation-lookup-container")) {
                 setRelationLookups((prev) => {
@@ -366,6 +340,7 @@ const App = () => {
         try {
             const result = await retrieveItemById(itemId);
             if (result.success) {
+                console.log("Result ", result);
                 setSelectedItem(result.item);
                 const itemData = {};
                 itemData["name"] = result.item.name;

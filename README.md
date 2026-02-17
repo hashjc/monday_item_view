@@ -50,3 +50,5 @@ Run
 npm intsall
 npm start
 
+mapps init -t <Token> commnad to link to new monday instance.
+

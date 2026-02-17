@@ -410,6 +410,16 @@ export async function retrieveItemById(itemId) {
                             title
                             type
                         }
+                        # Connect Board Column
+                        ... on BoardRelationValue {
+                            linked_item_ids
+                            display_value
+                        }
+
+                        # Mirror Column
+                        ... on MirrorValue {
+                            display_value
+                        }
                     }
                 }
             }
