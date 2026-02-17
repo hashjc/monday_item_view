@@ -361,26 +361,6 @@ body {
   background-color: #c82333;
 }
 
-/* Dropdown panel - FIXED VISIBILITY */
-/*
-.relation-lookup-dropdown {
-    position: absolute !important;
-    top: 100% !important;
-    left: 0 !important;
-    right: 0 !important;
-    margin-top: 4px !important;
-    background-color: #ffffff !important;
-    border: 2px solid #0073ea !important;
-    border-radius: 4px !important;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25) !important;
-    z-index: 99999 !important;
-    max-height: 400px !important;
-    display: flex !important;
-    flex-direction: column !important;
-    min-width: 300px !important;
-    overflow: visible !important;
-}
-*/
 .relation-lookup-dropdown {
     position: absolute !important;
     top: 100% !important;
@@ -472,18 +452,6 @@ body {
   background-color: #fff !important;
 }
 
-/* Item in list - FIXED VISIBILITY */
-/*
-.relation-lookup-item {
-  padding: 12px 16px !important;
-  cursor: pointer !important;
-  border-bottom: 1px solid #f0f0f0 !important;
-  background-color: #fff !important;
-  transition: background-color 0.15s !important;
-  display: block !important;
-  width: 100% !important;
-}
-*/
 
 .relation-lookup-item {
     padding: 10px 15px !important;
@@ -491,13 +459,7 @@ body {
     border-bottom: 1px solid #f0f0f0 !important;
     pointer-events: auto !important; /* Ensure click registration */
 }
-*
 
-/*
-.relation-lookup-item:hover {
-  background-color: #f5f5f5 !important;
-}
-*/
 .relation-lookup-item:hover {
     background-color: #f1f7ff !important;
     color: #0073ea !important;
@@ -651,6 +613,177 @@ body {
 .loading-state {
   padding: 20px;
   text-align: center;
+}
+
+/* ============================================================
+   PHONE INPUT WITH COUNTRY PICKER
+   Add these styles to your App.css
+   ============================================================ */
+
+/* Outer wrapper — positions the dropdown relative to this */
+.phone-input-wrapper {
+  position: relative;
+  display: flex;
+  width: 100%;
+  gap: 0;
+}
+
+/* Country selector trigger button */
+.phone-country-trigger {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid #ccc;
+  border-right: none;
+  border-radius: 4px 0 0 4px;
+  background-color: #f9f9f9;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: border-color 0.2s, background-color 0.2s;
+  user-select: none;
+}
+
+.phone-country-trigger:hover {
+  background-color: #f0f0f0;
+  border-color: #0073ea;
+}
+
+.phone-country-trigger.open {
+  border-color: #0073ea;
+  background-color: #e8f2ff;
+}
+
+.phone-flag {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.phone-dial {
+  font-size: 13px;
+  font-weight: 500;
+  color: #333;
+  min-width: 30px;
+}
+
+.phone-caret {
+  font-size: 10px;
+  color: #888;
+  margin-left: 2px;
+}
+
+/* The actual number input */
+.phone-number-input {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid #ccc;
+  border-radius: 0 4px 4px 0;
+  font-size: 14px;
+  font-family: inherit;
+  min-width: 0;
+  transition: border-color 0.2s;
+}
+
+.phone-number-input:focus {
+  outline: none;
+  border-color: #0073ea;
+  box-shadow: 0 0 0 2px rgba(0, 115, 234, 0.1);
+}
+
+/* Focus the left border too when the number is focused */
+.phone-number-input:focus ~ .phone-country-trigger,
+.phone-input-wrapper:focus-within .phone-country-trigger {
+  border-color: #0073ea;
+}
+
+/* Country dropdown panel */
+.phone-country-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  width: 300px;
+  background-color: #fff;
+  border: 2px solid #0073ea;
+  border-radius: 4px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  z-index: 99999;
+  display: flex;
+  flex-direction: column;
+  max-height: 340px;
+}
+
+/* Search box inside dropdown */
+.phone-country-search-wrapper {
+  padding: 10px 12px;
+  border-bottom: 1px solid #e0e0e0;
+  background-color: #f9f9f9;
+  flex-shrink: 0;
+}
+
+.phone-country-search {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid #ccc;
+  border-radius: 3px;
+  font-size: 13px;
+  background-color: #fff;
+}
+
+.phone-country-search:focus {
+  outline: none;
+  border-color: #0073ea;
+  box-shadow: 0 0 0 2px rgba(0, 115, 234, 0.1);
+}
+
+/* Scrollable list */
+.phone-country-list {
+  overflow-y: auto;
+  flex: 1;
+}
+
+/* Empty state */
+.phone-country-empty {
+  padding: 20px;
+  text-align: center;
+  color: #999;
+  font-size: 13px;
+}
+
+/* Each country row */
+.phone-country-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  cursor: pointer;
+  border-bottom: 1px solid #f5f5f5;
+  background-color: #fff;
+  transition: background-color 0.12s;
+}
+
+.phone-country-option:last-child {
+  border-bottom: none;
+}
+
+.phone-country-option:hover {
+  background-color: #f0f6ff;
+}
+
+.phone-country-option.active {
+  background-color: #e3f2fd;
+}
+
+.phone-country-name {
+  flex: 1;
+  font-size: 13px;
+  color: #333;
+}
+
+.phone-country-dial {
+  font-size: 12px;
+  color: #888;
+  font-weight: 500;
 }
 
 /* ===========================
