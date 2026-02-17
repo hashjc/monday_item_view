@@ -94,12 +94,53 @@ const App = () => {
         });
     }, [boardId]);
 
+    // 1. Add this useEffect to handle "Click Outside" to close menus
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            // Check if the click happened outside any lookup container
+            if (!event.target.closest(".relation-lookup-container")) {
+                // Close all Board Relation menus
+                setRelationLookups((prev) => {
+                    const newState = { ...prev };
+                    let changed = false;
+                    Object.keys(newState).forEach((key) => {
+                        if (newState[key].isOpen) {
+                            newState[key].isOpen = false;
+                            changed = true;
+                        }
+                    });
+                    return changed ? newState : prev;
+                });
+
+                // Close all People lookup menus
+                setPeopleLookups((prev) => {
+                    const newState = { ...prev };
+                    let changed = false;
+                    Object.keys(newState).forEach((key) => {
+                        if (newState[key].isOpen) {
+                            newState[key].isOpen = false;
+                            changed = true;
+                        }
+                    });
+                    return changed ? newState : prev;
+                });
+            }
+        };
+
+        // Bind the event listener
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => {
+            // Unbind the event listener on clean up
+            document.removeEventListener("mousedown", handleClickOutside);
+        };
+    }, []);
+
     useEffect(() => {
         const handleScroll = () => {
             // Optional: Close menus on scroll to avoid alignment issues
-            setRelationLookups(prev => {
+            setRelationLookups((prev) => {
                 const newState = { ...prev };
-                Object.keys(newState).forEach(key => newState[key].isOpen = false);
+                Object.keys(newState).forEach((key) => (newState[key].isOpen = false));
                 return newState;
             });
         };
@@ -252,11 +293,20 @@ const App = () => {
      * Load related board items when lookup is opened
      */
     const loadRelationLookup = async (columnId, relatedBoardId) => {
+        // Close others first
+        setRelationLookups({});
+        setPeopleLookups({});
+
+        setRelationLookups((prev) => ({
+            ...prev,
+            [columnId]: { ...prev[columnId], loading: true, isOpen: true },
+        }));
+        /*
         console.log(`Loading lookup for column ${columnId}, board ${relatedBoardId}`);
         // First, close all other open lookups
-        setRelationLookups(prev => {
+        setRelationLookups((prev) => {
             const reset = { ...prev };
-            Object.keys(reset).forEach(key => reset[key].isOpen = false);
+            Object.keys(reset).forEach((key) => (reset[key].isOpen = false));
             return reset;
         });
         // Set loading state
@@ -268,7 +318,7 @@ const App = () => {
                 isOpen: true,
             },
         }));
-
+        */
         try {
             const result = await retrieveBoardItems(relatedBoardId);
 
@@ -415,6 +465,9 @@ const App = () => {
      * Load people lookup when opened
      */
     const loadPeopleLookup = async (columnId) => {
+        // Close others first
+        setRelationLookups({});
+        setPeopleLookups({});
         console.log(`Loading people lookup for column ${columnId}`);
 
         // Set loading state
@@ -1372,9 +1425,9 @@ const App = () => {
 
         // Collect all fields from validated sections
         const allFields = [];
-        validatedSections.forEach(section => {
+        validatedSections.forEach((section) => {
             if (section.sectionData && section.sectionData.fields) {
-                section.sectionData.fields.forEach(field => {
+                section.sectionData.fields.forEach((field) => {
                     if (field.isValid && !field.duplicate) {
                         allFields.push(field);
                     }
@@ -1385,25 +1438,21 @@ const App = () => {
         // 1. REQUIRED FIELD VALIDATION
         // TODO: Implement required field validation
         // Check if fields marked as isDefault="true" have values
-        const requiredFields = allFields.filter(field => field.isDefault === "true");
+        const requiredFields = allFields.filter((field) => field.isDefault === "true");
         console.log("Required fields:", requiredFields);
 
-        requiredFields.forEach(field => {
+        requiredFields.forEach((field) => {
             const value = formData[field.columnId];
 
             // Check if field is empty
-            const isEmpty =
-                value === undefined ||
-                value === null ||
-                value === "" ||
-                (Array.isArray(value) && value.length === 0);
+            const isEmpty = value === undefined || value === null || value === "" || (Array.isArray(value) && value.length === 0);
 
             if (isEmpty) {
                 errors.push({
                     type: "REQUIRED_FIELD",
                     field: field.label,
                     columnId: field.columnId,
-                    message: `${field.label} is required`
+                    message: `${field.label} is required`,
                 });
             }
         });
@@ -1411,7 +1460,7 @@ const App = () => {
         // 2. DATA TYPE VALIDATION
         // TODO: Implement data type validation
         // Validate that data types match field types
-        allFields.forEach(field => {
+        allFields.forEach((field) => {
             const value = formData[field.columnId];
 
             if (value === undefined || value === null || value === "") {
@@ -1429,7 +1478,7 @@ const App = () => {
                             type: "INVALID_TYPE",
                             field: field.label,
                             columnId: field.columnId,
-                            message: `${field.label} must be a valid number`
+                            message: `${field.label} must be a valid number`,
                         });
                     }
                     break;
@@ -1441,7 +1490,7 @@ const App = () => {
                             type: "INVALID_DATE",
                             field: field.label,
                             columnId: field.columnId,
-                            message: `${field.label} must be a valid date`
+                            message: `${field.label} must be a valid date`,
                         });
                     }
                     break;
@@ -1470,7 +1519,7 @@ const App = () => {
                 errors.push({
                     type: "BUSINESS_RULE",
                     field: "Date Range",
-                    message: "End date must be after start date"
+                    message: "End date must be after start date",
                 });
             }
         }
@@ -1488,7 +1537,7 @@ const App = () => {
 
         return {
             isValid: errors.length === 0,
-            errors: errors
+            errors: errors,
         };
     };
 
@@ -1508,7 +1557,7 @@ const App = () => {
 
         // Group errors by type
         const errorsByType = {};
-        errors.forEach(error => {
+        errors.forEach((error) => {
             if (!errorsByType[error.type]) {
                 errorsByType[error.type] = [];
             }
@@ -1518,13 +1567,13 @@ const App = () => {
         // Build error message
         let errorMessage = "Please fix the following errors:\n\n";
 
-        Object.keys(errorsByType).forEach(type => {
+        Object.keys(errorsByType).forEach((type) => {
             const typeErrors = errorsByType[type];
 
             switch (type) {
                 case "REQUIRED_FIELD":
                     errorMessage += "Required fields:\n";
-                    typeErrors.forEach(err => {
+                    typeErrors.forEach((err) => {
                         errorMessage += `  • ${err.message}\n`;
                     });
                     errorMessage += "\n";
@@ -1533,7 +1582,7 @@ const App = () => {
                 case "INVALID_TYPE":
                 case "INVALID_DATE":
                     errorMessage += "Invalid values:\n";
-                    typeErrors.forEach(err => {
+                    typeErrors.forEach((err) => {
                         errorMessage += `  • ${err.message}\n`;
                     });
                     errorMessage += "\n";
@@ -1541,7 +1590,7 @@ const App = () => {
 
                 case "BUSINESS_RULE":
                     errorMessage += "Business rules:\n";
-                    typeErrors.forEach(err => {
+                    typeErrors.forEach((err) => {
                         errorMessage += `  • ${err.message}\n`;
                     });
                     errorMessage += "\n";
@@ -1553,7 +1602,7 @@ const App = () => {
         monday.execute("notice", {
             message: errorMessage,
             type: "error",
-            timeout: 10000
+            timeout: 10000,
         });
 
         // Also log to console for debugging
@@ -1588,7 +1637,7 @@ const App = () => {
                 const firstErrorField = validation.errors[0].columnId;
                 const fieldElement = document.querySelector(`[data-column-id="${firstErrorField}"]`);
                 if (fieldElement) {
-                    fieldElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    fieldElement.scrollIntoView({ behavior: "smooth", block: "center" });
                 }
             }
 
@@ -1814,6 +1863,6 @@ const App = () => {
             )}
         </div>
     );
-};;
+};;;
 
 export default App;

@@ -218,7 +218,8 @@ body {
 /* Ensure sections don't clip the dropdowns */
 .section-container,
 .section-content,
-.field-wrapper {
+.field-wrapper,
+.fields-grid {
     overflow: visible !important;
 }
 
@@ -389,7 +390,7 @@ body {
     background: white !important;
     border: 1px solid #0073ea !important;
     box-shadow: 0 4px 12px rgba(0,0,0,0.2) !important;
-    z-index: 10000 !important; /* Critical */
+    z-index: 10000 !important;
     display: flex !important;
     flex-direction: column !important;
 }
