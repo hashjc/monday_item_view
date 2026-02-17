@@ -176,6 +176,22 @@ const PhoneInput = ({ columnId, value, onChange, label }) => {
     );
 };
 
+// New Helper: The Pill Component
+const RecordPill = ({ label, onRemove }) => (
+    <div className="selected-record-pill">
+        <span className="pill-text">{label}</span>
+        <button
+            className="pill-remove-btn"
+            onClick={(e) => {
+                e.stopPropagation();
+                onRemove();
+            }}
+        >
+            ×
+        </button>
+    </div>
+);
+
 const App = () => {
     console.log("App start");
     const [context, setContext] = useState();
@@ -388,32 +404,47 @@ const App = () => {
             console.log("Item rtrived full record ", result);
             if (result.success) {
                 console.log("Result ", result);
-                setSelectedItem(result.item);
+                //setSelectedItem(result.item);
                 const itemData = {};
                 itemData["name"] = result.item.name;
                 result.item.column_values.forEach((col) => {
-                    if (col.type === "status" || col.type === "dropdown") {
+                    if (col.type === "people" || col.type === "board_relation") {
+                        try {
+                            const parsed = JSON.parse(col.value);
+                            if (col.type === "people") {
+                                // Store full object with Name and Photo
+                                itemData[col.id] =
+                                    parsed.personsAndTeams?.map((p) => ({
+                                        id: parseInt(p.id),
+                                        name: col.text.split(", ")[parsed.personsAndTeams.indexOf(p)], // Fallback for name
+                                        photo: null, // GraphQL doesn't return photo in col.value
+                                    })) || [];
+                            } else if (col.type === "board_relation") {
+                                try {
+                                    const ids = col.linked_item_ids || [];
+                                    const displayVal = col.display_value || "";
+                                    const names = displayVal
+                                        ? displayVal.split(", ").map((n) => n.trim())
+                                        : [];
+
+                                    itemData[col.id] = ids.map((id, index) => ({
+                                        id: id,
+                                        name: names[index] || `Item ${id}`,
+                                    }));
+                                } catch (e) {
+                                    itemData[col.id] = [];
+                                }
+                            }
+                        } catch (e) {
+                            itemData[col.id] = [];
+                        }
+                    } else if (col.type === "status" || col.type === "dropdown") {
                         try {
                             const parsed = JSON.parse(col.value);
                             if (col.type === "status") itemData[col.id] = parsed.index || "";
                             else if (col.type === "dropdown") itemData[col.id] = parsed.ids || [];
                         } catch (e) {
                             itemData[col.id] = col.text || "";
-                        }
-                    } else if (col.type === "people") {
-                        try {
-                            const parsed = JSON.parse(col.value);
-                            itemData[col.id] = parsed.personsAndTeams?.map((p) => parseInt(p.id)) || [];
-                        } catch (e) {
-                            itemData[col.id] = [];
-                        }
-                    } else if (col.type === "board_relation") {
-                        try {
-                            const parsed = JSON.parse(col.value);
-                            const linkedItemIds = parsed.linkedPulseIds?.map((id) => parseInt(id.linkedPulseId)) || [];
-                            itemData[col.id] = linkedItemIds.length > 0 ? linkedItemIds[0] : "";
-                        } catch (e) {
-                            itemData[col.id] = "";
                         }
                     } else if (col.type === "phone") {
                         // Parse phone back into { phone, countryShortName } for our PhoneInput
@@ -736,7 +767,7 @@ const App = () => {
                     );
                 }
             }
-
+            /*
             case "people": {
                 const selectedPeople = Array.isArray(value) ? value : [];
                 const lookup = peopleLookups[field.columnId] || {};
@@ -861,6 +892,137 @@ const App = () => {
                     </div>
                 );
             }
+            */
+            case "people":
+            case "board_relation": {
+                const selectedItems = Array.isArray(formData[field.columnId]) ? formData[field.columnId] : [];
+                const lookup = (field.type === "people" ? peopleLookups : relationLookups)[field.columnId] || {};
+                const isOpen = lookup.isOpen || false;
+
+                return (
+                    <div className="relation-lookup-container">
+                        {/* --- TRIGGER AREA (Showing Pills) --- */}
+                        <div
+                            className={`relation-lookup-trigger ${isOpen ? "open" : ""}`}
+                            onClick={() => {
+                                if (!isOpen) {
+                                    if (field.type === "people") {
+                                        loadPeopleLookup(field.columnId);
+                                    } else {
+                                        const relatedBoardIds = getRelatedBoardIds(field.columnId);
+                                        loadRelationLookup(field.columnId, relatedBoardIds);
+                                    }
+                                }
+                            }}
+                        >
+                            <div className="pills-container">
+                                {selectedItems.length > 0 ? (
+                                    selectedItems.map((item, idx) => (
+                                        <RecordPill
+                                            key={item.id || idx}
+                                            label={item.name || `ID: ${item.id || item}`}
+                                            onRemove={() => {
+                                                const newValue = selectedItems.filter((_, i) => i !== idx);
+                                                handleFieldChange(field.columnId, newValue);
+                                            }}
+                                        />
+                                    ))
+                                ) : (
+                                    <span className="relation-lookup-trigger-text placeholder">-- Select {field.label} --</span>
+                                )}
+                            </div>
+                            <span className="relation-lookup-trigger-icon">{isOpen ? "▲" : "▼"}</span>
+                        </div>
+
+                        {/* --- DROPDOWN AREA (The "Rest of JSX") --- */}
+                        {isOpen && (
+                            <div className="relation-lookup-dropdown">
+                                <div className="relation-lookup-header">
+                                    <input
+                                        type="text"
+                                        className="relation-lookup-search"
+                                        placeholder={field.type === "people" ? "Search by name or email..." : "Search by name..."}
+                                        value={lookup.searchTerm || ""}
+                                        onChange={(e) =>
+                                            field.type === "people"
+                                                ? handlePeopleSearch(field.columnId, e.target.value)
+                                                : handleRelationSearch(field.columnId, getRelatedBoardIds(field.columnId), e.target.value)
+                                        }
+                                        autoFocus
+                                    />
+                                    <button
+                                        className="relation-lookup-close-btn"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            field.type === "people" ? closePeopleLookup(field.columnId) : closeRelationLookup(field.columnId);
+                                        }}
+                                    >
+                                        Close
+                                    </button>
+                                </div>
+
+                                <div className="relation-lookup-results">
+                                    {lookup.loading && <div className="relation-lookup-loading">Loading...</div>}
+
+                                    {!lookup.loading && lookup.error && <div className="relation-lookup-error">{lookup.error}</div>}
+
+                                    {!lookup.loading && ((!lookup.users && !lookup.items) || lookup.users?.length === 0 || lookup.items?.length === 0) && (
+                                        <div className="relation-lookup-empty">No results found</div>
+                                    )}
+
+                                    {/* Rendering People Results */}
+                                    {field.type === "people" &&
+                                        !lookup.loading &&
+                                        lookup.users?.map((user) => {
+                                            const isSelected = selectedItems.some((item) => parseInt(item.id) === parseInt(user.id));
+                                            return (
+                                                <div
+                                                    key={user.id}
+                                                    className={`relation-lookup-item people-item ${isSelected ? "selected" : ""}`}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        // For multi-select people, we toggle an object {id, name}
+                                                        const newValue = isSelected
+                                                            ? selectedItems.filter((i) => parseInt(i.id) !== parseInt(user.id))
+                                                            : [...selectedItems, { id: parseInt(user.id), name: user.name }];
+                                                        handleFieldChange(field.columnId, newValue);
+                                                    }}
+                                                >
+                                                    <input type="checkbox" checked={isSelected} readOnly />
+                                                    <div className="relation-lookup-item-name">{user.name}</div>
+                                                </div>
+                                            );
+                                        })}
+
+                                    {/* Rendering Board Relation Results */}
+                                    {field.type === "board_relation" &&
+                                        !lookup.loading &&
+                                        lookup.items?.map((item) => {
+                                            const isSelected = selectedItems.some((i) => String(i.id) === String(item.id));
+                                            return (
+                                                <div
+                                                    key={item.id}
+                                                    className={`relation-lookup-item ${isSelected ? "selected" : ""}`}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        // For board relation, we usually only allow single or limited select, but treating as multi-pills
+                                                        const newValue = isSelected
+                                                            ? selectedItems.filter((i) => String(i.id) !== String(item.id))
+                                                            : [...selectedItems, { id: item.id, name: item.name }];
+                                                        handleFieldChange(field.columnId, newValue);
+                                                    }}
+                                                >
+                                                    <div className="relation-lookup-item-name">{item.name}</div>
+                                                    <div className="relation-lookup-item-id">ID: {item.id}</div>
+                                                </div>
+                                            );
+                                        })}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                );
+            }
 
             case "email":
                 return (
@@ -878,7 +1040,7 @@ const App = () => {
             // =====================================================
             case "phone":
                 return <PhoneInput columnId={field.columnId} value={value} onChange={handleFieldChange} label={field.label} />;
-
+            /*
             case "board_relation": {
                 const relatedBoardIds = getRelatedBoardIds(field.columnId);
                 if (relatedBoardIds.length === 0) return <div style={{ fontSize: "13px", color: "#999" }}>Board relation not configured</div>;
@@ -1006,6 +1168,7 @@ const App = () => {
                     </div>
                 );
             }
+            */
 
             case "name":
             case "text":
@@ -1101,6 +1264,7 @@ const App = () => {
                 const validIds = ids.filter((id) => id !== "" && id !== null).map((id) => parseInt(id));
                 return validIds.length > 0 ? { ids: validIds } : null;
             }
+            /*
             case "people": {
                 const peopleIds = Array.isArray(value) ? value : [value];
                 const validPeopleIds = peopleIds.filter((id) => id !== "" && id !== null);
@@ -1110,6 +1274,17 @@ const App = () => {
                 const relationIds = Array.isArray(value) ? value : [value];
                 const validRelationIds = relationIds.filter((id) => id !== "" && id !== null);
                 return validRelationIds.length > 0 ? { item_ids: validRelationIds.map((id) => parseInt(id)) } : null;
+            }
+            */
+            case "people": {
+                const people = Array.isArray(value) ? value : [];
+                const validIds = people.map((p) => (typeof p === "object" ? p.id : p)).filter((id) => !!id);
+                return validIds.length > 0 ? { personsAndTeams: validIds.map((id) => ({ id: parseInt(id), kind: "person" })) } : null;
+            }
+            case "board_relation": {
+                const relations = Array.isArray(value) ? value : [];
+                const validIds = relations.map((r) => (typeof r === "object" ? r.id : r)).filter((id) => !!id);
+                return validIds.length > 0 ? { item_ids: validIds.map((id) => parseInt(id)) } : null;
             }
             case "checkbox":
                 return { checked: value ? "true" : "false" };
@@ -1427,7 +1602,7 @@ const App = () => {
                                 <div className="item-selector">
                                     <h3>Select Item to Update:</h3>
                                     <div className="relation-lookup-container" style={{ maxWidth: "500px" }}>
-                                        {/* Trigger Area */}
+                                        {/* Lookup Trigger */}
                                         <div
                                             className={`relation-lookup-trigger ${mainItemLookup.isOpen ? "open" : ""}`}
                                             onClick={() => {
@@ -1435,8 +1610,24 @@ const App = () => {
                                             }}
                                         >
                                             <span className={`relation-lookup-trigger-text ${!selectedItem ? "placeholder" : ""}`}>
-                                                {selectedItem ? selectedItem.name : "Search for an item..."}
+                                                {selectedItem ? selectedItem.name : "-- Search for a record --"}
                                             </span>
+
+                                            {selectedItemId && (
+                                                <button
+                                                    className="relation-lookup-clear-btn"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setSelectedItemId("");
+                                                        setSelectedItem(null);
+                                                        setFormData({});
+                                                    }}
+                                                    title="Clear selection"
+                                                    type="button"
+                                                >
+                                                    ×
+                                                </button>
+                                            )}
                                             <span className="relation-lookup-trigger-icon">{mainItemLookup.isOpen ? "▲" : "▼"}</span>
                                         </div>
 
@@ -1447,8 +1638,8 @@ const App = () => {
                                                     <input
                                                         type="text"
                                                         className="relation-lookup-search"
-                                                        placeholder="Type to search records..."
-                                                        value={mainItemLookup.searchTerm}
+                                                        placeholder="Type to search items..."
+                                                        value={mainItemLookup.searchTerm || ""}
                                                         onChange={(e) => handleMainItemLookupSearch(e.target.value)}
                                                         autoFocus
                                                     />
@@ -1462,28 +1653,40 @@ const App = () => {
                                                         Close
                                                     </button>
                                                 </div>
+
                                                 <div className="relation-lookup-results main-item-lookup-results">
-                                                    {mainItemLookup.loading && <div className="relation-lookup-loading">Searching...</div>}
-                                                    {!mainItemLookup.loading && mainItemLookup.items.length === 0 && (
-                                                        <div className="relation-lookup-empty">No records found</div>
+                                                    {mainItemLookup.loading && <div className="relation-lookup-loading">Searching board...</div>}
+
+                                                    {!mainItemLookup.loading && mainItemLookup.items && mainItemLookup.items.length === 0 && (
+                                                        <div className="relation-lookup-empty">No records match your search</div>
                                                     )}
-                                                    {mainItemLookup.items.map((item) => (
-                                                        <div
-                                                            key={item.id}
-                                                            className={`relation-lookup-item ${selectedItemId === item.id ? "selected" : ""}`}
-                                                            onClick={() => {
-                                                                handleItemSelection({ target: { value: item.id } }); // Triggers details fetch
-                                                                setMainItemLookup((prev) => ({ ...prev, isOpen: false }));
-                                                            }}
-                                                        >
-                                                            <div className="relation-lookup-item-name">{item.name}</div>
-                                                            <div className="relation-lookup-item-id">ID: {item.id}</div>
-                                                        </div>
-                                                    ))}
+
+                                                    {!mainItemLookup.loading &&
+                                                        mainItemLookup.items &&
+                                                        mainItemLookup.items.length > 0 &&
+                                                        mainItemLookup.items.map((item) => (
+                                                            <div
+                                                                key={item.id}
+                                                                className={`relation-lookup-item ${String(selectedItemId) === String(item.id) ? "selected" : ""}`}
+                                                                onClick={() => selectUpdateItem(item)}
+                                                            >
+                                                                <div className="relation-lookup-item-name">{item.name}</div>
+                                                                <div className="relation-lookup-item-id">ID: {item.id}</div>
+                                                            </div>
+                                                        ))}
+                                                </div>
+
+                                                <div className="relation-lookup-footer">
+                                                    {mainItemLookup.items?.length || 0} records found in {selectedBoardName}
                                                 </div>
                                             </div>
                                         )}
                                     </div>
+                                    {itemsError && (
+                                        <div className="error-inline">
+                                            <p>{itemsError}</p>
+                                        </div>
+                                    )}
                                 </div>
                             )}
                             {(formAction === "create" || (formAction === "update" && selectedItemId)) && loadForm()}
