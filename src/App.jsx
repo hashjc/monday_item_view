@@ -402,8 +402,24 @@ const App = () => {
     };
 
     const loadRelationLookup = async (columnId, relatedBoardIds) => {
-        setRelationLookups({});
-        setPeopleLookups({});
+        // Only close OTHER open dropdowns — do NOT wipe their items/users cache.
+        // The items cache is what lets each trigger display its selected value name.
+        setRelationLookups((prev) => {
+            const next = { ...prev };
+            Object.keys(next).forEach((key) => {
+                if (key !== columnId && next[key].isOpen) {
+                    next[key] = { ...next[key], isOpen: false };
+                }
+            });
+            return next;
+        });
+        setPeopleLookups((prev) => {
+            const next = { ...prev };
+            Object.keys(next).forEach((key) => {
+                if (next[key].isOpen) next[key] = { ...next[key], isOpen: false };
+            });
+            return next;
+        });
         setRelationLookups((prev) => ({ ...prev, [columnId]: { ...prev[columnId], loading: true, isOpen: true } }));
         try {
             // Fetch from ALL linked boards in parallel
@@ -482,8 +498,23 @@ const App = () => {
     };
 
     const loadPeopleLookup = async (columnId) => {
-        setRelationLookups({});
-        setPeopleLookups({});
+        // Only close OTHER open dropdowns — do NOT wipe their items/users cache.
+        setRelationLookups((prev) => {
+            const next = { ...prev };
+            Object.keys(next).forEach((key) => {
+                if (next[key].isOpen) next[key] = { ...next[key], isOpen: false };
+            });
+            return next;
+        });
+        setPeopleLookups((prev) => {
+            const next = { ...prev };
+            Object.keys(next).forEach((key) => {
+                if (key !== columnId && next[key].isOpen) {
+                    next[key] = { ...next[key], isOpen: false };
+                }
+            });
+            return next;
+        });
         setPeopleLookups((prev) => ({ ...prev, [columnId]: { ...prev[columnId], loading: true, isOpen: true } }));
         try {
             const result = await getAllUsers();
