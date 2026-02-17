@@ -197,6 +197,13 @@ const App = () => {
     const [relationLookups, setRelationLookups] = useState({});
     const searchTimers = useRef({});
 
+    const [mainItemLookup, setMainItemLookup] = useState({
+        items: [],
+        loading: false,
+        searchTerm: "",
+        isOpen: false,
+    });
+
     useEffect(() => {
         monday.execute("valueCreatedForUser");
         monday
@@ -254,6 +261,7 @@ const App = () => {
                     Object.keys(newState).forEach((key) => (newState[key].isOpen = false));
                     return newState;
                 });
+                setMainItemLookup((prev) => ({ ...prev, isOpen: false }));
             }
         };
         document.addEventListener("mousedown", handleClickOutside);
@@ -271,8 +279,15 @@ const App = () => {
         };
         */
         const handleScroll = (event) => {
+            if (!event.target || event.target.nodeType !== 1) {
+                return;
+            }
             // If the scroll is happening inside a relation or people lookup list, DO NOT close it
-            if (event.target.closest(".relation-lookup-results") || event.target.closest(".phone-country-list")) {
+            if (
+                event.target.closest(".relation-lookup-results") ||
+                event.target.closest(".phone-country-list") ||
+                event.target.closest(".main-item-lookup-results")
+            ) {
                 return;
             }
 
@@ -288,6 +303,8 @@ const App = () => {
                 Object.keys(newState).forEach((key) => (newState[key].isOpen = false));
                 return newState;
             });
+
+            setMainItemLookup((prev) => ({ ...prev, isOpen: false }));
         };
         window.addEventListener("scroll", handleScroll, true);
         return () => window.removeEventListener("scroll", handleScroll, true);
@@ -318,6 +335,34 @@ const App = () => {
         } finally {
             setLoadingItems(false);
         }
+    };
+
+    // logic to handle searching for items on the MAIN board
+    const handleMainItemSearch = (searchTerm) => {
+        setMainItemLookup((prev) => ({ ...prev, searchTerm, loading: true }));
+
+        if (searchTimers.current["main_search"]) clearTimeout(searchTimers.current["main_search"]);
+
+        searchTimers.current["main_search"] = setTimeout(async () => {
+            try {
+                const result = searchTerm.trim() ? await retrieveBoardItemsByItemName(boardId, searchTerm) : await retrieveBoardItems(boardId);
+
+                setMainItemLookup((prev) => ({
+                    ...prev,
+                    items: result.success ? result.items : [],
+                    loading: false,
+                    isOpen: true,
+                }));
+            } catch (err) {
+                setMainItemLookup((prev) => ({ ...prev, loading: false }));
+            }
+        }, 500);
+    };
+
+    // Selection handler for the update record
+    const selectUpdateItem = (item) => {
+        handleItemSelection({ target: { value: item.id } }); // Trigger existing details fetch
+        setMainItemLookup((prev) => ({ ...prev, isOpen: false, searchTerm: "" }));
     };
 
     const handleFormActionChange = (event) => {
@@ -1379,26 +1424,61 @@ const App = () => {
                             {formAction === "update" && (
                                 <div className="item-selector">
                                     <h3>Select Item to Update:</h3>
-                                    {loadingItems && <p>Loading items...</p>}
-                                    {itemsError && (
-                                        <div className="error-inline">
-                                            <p>Error: {itemsError}</p>
+                                    <div className="relation-lookup-container" style={{ maxWidth: "500px" }}>
+                                        {/* Lookup Trigger */}
+                                        <div
+                                            className={`relation-lookup-trigger ${mainItemLookup.isOpen ? "open" : ""}`}
+                                            onClick={() => {
+                                                if (!mainItemLookup.isOpen) handleMainItemSearch("");
+                                            }}
+                                        >
+                                            <span className={`relation-lookup-trigger-text ${!selectedItem ? "placeholder" : ""}`}>
+                                                {selectedItem ? selectedItem.name : "Search for an item..."}
+                                            </span>
+                                            <span className="relation-lookup-trigger-icon">{mainItemLookup.isOpen ? "▲" : "▼"}</span>
                                         </div>
-                                    )}
-                                    {!loadingItems && !itemsError && boardItems.length === 0 && <p className="no-items-message">No items found.</p>}
-                                    {!loadingItems && !itemsError && boardItems.length > 0 && (
-                                        <div>
-                                            <select value={selectedItemId} onChange={handleItemSelection} className="item-dropdown">
-                                                <option value="">-- Select an item --</option>
-                                                {boardItems.map((item) => (
-                                                    <option key={item.id} value={item.id}>
-                                                        {item.name} (ID: {item.id})
-                                                    </option>
-                                                ))}
-                                            </select>
-                                            <p className="item-count-hint">Found {boardItems.length} item(s) in board</p>
-                                        </div>
-                                    )}
+
+                                        {/* Lookup Dropdown */}
+                                        {mainItemLookup.isOpen && (
+                                            <div className="relation-lookup-dropdown">
+                                                <div className="relation-lookup-header">
+                                                    <input
+                                                        type="text"
+                                                        className="relation-lookup-search"
+                                                        placeholder="Type to search items..."
+                                                        value={mainItemLookup.searchTerm}
+                                                        onChange={(e) => handleMainItemSearch(e.target.value)}
+                                                        autoFocus
+                                                    />
+                                                    <button
+                                                        className="relation-lookup-close-btn"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setMainItemLookup((prev) => ({ ...prev, isOpen: false }));
+                                                        }}
+                                                    >
+                                                        Close
+                                                    </button>
+                                                </div>
+                                                <div className="relation-lookup-results">
+                                                    {mainItemLookup.loading && <div className="relation-lookup-loading">Searching...</div>}
+                                                    {!mainItemLookup.loading && mainItemLookup.items.length === 0 && (
+                                                        <div className="relation-lookup-empty">No matching items found</div>
+                                                    )}
+                                                    {mainItemLookup.items.map((item) => (
+                                                        <div
+                                                            key={item.id}
+                                                            className={`relation-lookup-item ${selectedItemId === item.id ? "selected" : ""}`}
+                                                            onClick={() => selectUpdateItem(item)}
+                                                        >
+                                                            <div className="relation-lookup-item-name">{item.name}</div>
+                                                            <div className="relation-lookup-item-id">ID: {item.id}</div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             )}
                             {(formAction === "create" || (formAction === "update" && selectedItemId)) && loadForm()}
