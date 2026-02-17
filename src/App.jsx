@@ -5,11 +5,176 @@ import mondaySdk from "monday-sdk-js";
 import "@vibe/core/tokens";
 import { useBoards } from "./hooks/useBoards";
 import { usePageLayoutInfo } from "./hooks/pageLayoutService";
-import { retrieveBoardItems, retrieveItemById, retrieveBoardItemsByItemName } from "./hooks/items";
+import {
+    retrieveBoardItems,
+    retrieveItemById,
+    retrieveBoardItemsByItemName,
+    retrieveMultipleBoardItems,
+    retrieveMultipleBoardItemsByItemName,
+} from "./hooks/items";
 import { getBoardColumns } from "./hooks/boardMetadata";
 import { getAllUsers, searchUsersByNameOrEmail } from "./hooks/usersAndTeams";
 
 const monday = mondaySdk();
+
+// =============================================================
+// PHONE COUNTRIES DATA
+// monday.com countryShortName uses ISO 3166-1 alpha-2 codes
+// =============================================================
+const PHONE_COUNTRIES = [
+    { code: "US", name: "United States", dial: "+1", flag: "🇺🇸" },
+    { code: "CA", name: "Canada", dial: "+1", flag: "🇨🇦" },
+    { code: "GB", name: "United Kingdom", dial: "+44", flag: "🇬🇧" },
+    { code: "AU", name: "Australia", dial: "+61", flag: "🇦🇺" },
+    { code: "DE", name: "Germany", dial: "+49", flag: "🇩🇪" },
+    { code: "FR", name: "France", dial: "+33", flag: "🇫🇷" },
+    { code: "IN", name: "India", dial: "+91", flag: "🇮🇳" },
+    { code: "BR", name: "Brazil", dial: "+55", flag: "🇧🇷" },
+    { code: "MX", name: "Mexico", dial: "+52", flag: "🇲🇽" },
+    { code: "JP", name: "Japan", dial: "+81", flag: "🇯🇵" },
+    { code: "CN", name: "China", dial: "+86", flag: "🇨🇳" },
+    { code: "KR", name: "South Korea", dial: "+82", flag: "🇰🇷" },
+    { code: "SG", name: "Singapore", dial: "+65", flag: "🇸🇬" },
+    { code: "AE", name: "UAE", dial: "+971", flag: "🇦🇪" },
+    { code: "SA", name: "Saudi Arabia", dial: "+966", flag: "🇸🇦" },
+    { code: "ZA", name: "South Africa", dial: "+27", flag: "🇿🇦" },
+    { code: "NG", name: "Nigeria", dial: "+234", flag: "🇳🇬" },
+    { code: "EG", name: "Egypt", dial: "+20", flag: "🇪🇬" },
+    { code: "IT", name: "Italy", dial: "+39", flag: "🇮🇹" },
+    { code: "ES", name: "Spain", dial: "+34", flag: "🇪🇸" },
+    { code: "NL", name: "Netherlands", dial: "+31", flag: "🇳🇱" },
+    { code: "SE", name: "Sweden", dial: "+46", flag: "🇸🇪" },
+    { code: "NO", name: "Norway", dial: "+47", flag: "🇳🇴" },
+    { code: "DK", name: "Denmark", dial: "+45", flag: "🇩🇰" },
+    { code: "FI", name: "Finland", dial: "+358", flag: "🇫🇮" },
+    { code: "CH", name: "Switzerland", dial: "+41", flag: "🇨🇭" },
+    { code: "AT", name: "Austria", dial: "+43", flag: "🇦🇹" },
+    { code: "BE", name: "Belgium", dial: "+32", flag: "🇧🇪" },
+    { code: "PT", name: "Portugal", dial: "+351", flag: "🇵🇹" },
+    { code: "PL", name: "Poland", dial: "+48", flag: "🇵🇱" },
+    { code: "RU", name: "Russia", dial: "+7", flag: "🇷🇺" },
+    { code: "TR", name: "Turkey", dial: "+90", flag: "🇹🇷" },
+    { code: "IL", name: "Israel", dial: "+972", flag: "🇮🇱" },
+    { code: "PK", name: "Pakistan", dial: "+92", flag: "🇵🇰" },
+    { code: "BD", name: "Bangladesh", dial: "+880", flag: "🇧🇩" },
+    { code: "ID", name: "Indonesia", dial: "+62", flag: "🇮🇩" },
+    { code: "MY", name: "Malaysia", dial: "+60", flag: "🇲🇾" },
+    { code: "PH", name: "Philippines", dial: "+63", flag: "🇵🇭" },
+    { code: "TH", name: "Thailand", dial: "+66", flag: "🇹🇭" },
+    { code: "VN", name: "Vietnam", dial: "+84", flag: "🇻🇳" },
+    { code: "NZ", name: "New Zealand", dial: "+64", flag: "🇳🇿" },
+    { code: "AR", name: "Argentina", dial: "+54", flag: "🇦🇷" },
+    { code: "CO", name: "Colombia", dial: "+57", flag: "🇨🇴" },
+    { code: "CL", name: "Chile", dial: "+56", flag: "🇨🇱" },
+    { code: "PE", name: "Peru", dial: "+51", flag: "🇵🇪" },
+    { code: "GR", name: "Greece", dial: "+30", flag: "🇬🇷" },
+    { code: "CZ", name: "Czech Republic", dial: "+420", flag: "🇨🇿" },
+    { code: "HU", name: "Hungary", dial: "+36", flag: "🇭🇺" },
+    { code: "RO", name: "Romania", dial: "+40", flag: "🇷🇴" },
+    { code: "UA", name: "Ukraine", dial: "+380", flag: "🇺🇦" },
+];
+
+// =============================================================
+// PhoneInput Component
+// Renders: [🇺🇸 ▾] [ number input ]
+// Stores in formData as: { phone: "9885551234", countryShortName: "US" }
+// =============================================================
+const PhoneInput = ({ columnId, value, onChange, label }) => {
+    // value is either "" or { phone: "...", countryShortName: "..." }
+    const phoneObj = value && typeof value === "object" ? value : { phone: "", countryShortName: "US" };
+    const selectedCode = phoneObj.countryShortName || "US";
+    const phoneNumber = phoneObj.phone || "";
+
+    const [countrySearch, setCountrySearch] = useState("");
+    const [dropdownOpen, setDropdownOpen] = useState(false);
+    const dropdownRef = useRef(null);
+
+    const selectedCountry = PHONE_COUNTRIES.find((c) => c.code === selectedCode) || PHONE_COUNTRIES[0];
+
+    const filteredCountries = countrySearch.trim()
+        ? PHONE_COUNTRIES.filter(
+              (c) =>
+                  c.name.toLowerCase().includes(countrySearch.toLowerCase()) ||
+                  c.dial.includes(countrySearch) ||
+                  c.code.toLowerCase().includes(countrySearch.toLowerCase()),
+          )
+        : PHONE_COUNTRIES;
+
+    // Close dropdown on outside click
+    useEffect(() => {
+        const handler = (e) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+                setDropdownOpen(false);
+                setCountrySearch("");
+            }
+        };
+        document.addEventListener("mousedown", handler);
+        return () => document.removeEventListener("mousedown", handler);
+    }, []);
+
+    const handleCountrySelect = (country) => {
+        setDropdownOpen(false);
+        setCountrySearch("");
+        onChange(columnId, { phone: phoneNumber, countryShortName: country.code });
+    };
+
+    const handlePhoneChange = (e) => {
+        // Strip non-numeric chars (keep digits only for monday.com)
+        const raw = e.target.value.replace(/[^\d\s\-().]/g, "");
+        onChange(columnId, { phone: raw, countryShortName: selectedCode });
+    };
+
+    return (
+        <div className="phone-input-wrapper" ref={dropdownRef}>
+            {/* Country selector trigger */}
+            <div
+                className={`phone-country-trigger ${dropdownOpen ? "open" : ""}`}
+                onClick={() => setDropdownOpen((prev) => !prev)}
+                title={`${selectedCountry.name} (${selectedCountry.dial})`}
+            >
+                <span className="phone-flag">{selectedCountry.flag}</span>
+                <span className="phone-dial">{selectedCountry.dial}</span>
+                <span className="phone-caret">▾</span>
+            </div>
+
+            {/* Number input */}
+            <input type="tel" className="phone-number-input" value={phoneNumber} onChange={handlePhoneChange} placeholder={`${label || "Phone"} number`} />
+
+            {/* Country dropdown */}
+            {dropdownOpen && (
+                <div className="phone-country-dropdown">
+                    <div className="phone-country-search-wrapper">
+                        <input
+                            type="text"
+                            className="phone-country-search"
+                            placeholder="Search country..."
+                            value={countrySearch}
+                            onChange={(e) => setCountrySearch(e.target.value)}
+                            autoFocus
+                        />
+                    </div>
+                    <div className="phone-country-list">
+                        {filteredCountries.length === 0 ? (
+                            <div className="phone-country-empty">No countries found</div>
+                        ) : (
+                            filteredCountries.map((country) => (
+                                <div
+                                    key={country.code}
+                                    className={`phone-country-option ${country.code === selectedCode ? "active" : ""}`}
+                                    onClick={() => handleCountrySelect(country)}
+                                >
+                                    <span className="phone-flag">{country.flag}</span>
+                                    <span className="phone-country-name">{country.name}</span>
+                                    <span className="phone-country-dial">{country.dial}</span>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
 
 const App = () => {
     console.log("App start");
@@ -27,35 +192,20 @@ const App = () => {
     const [formData, setFormData] = useState({});
     const [collapsedSections, setCollapsedSections] = useState({});
 
-    // Board columns metadata for dropdown/status options
     const [boardColumns, setBoardColumns] = useState([]);
-
-    // Monday users for People fields (lookup pattern)
     const [peopleLookups, setPeopleLookups] = useState({});
-    // Format: { columnId: { users: [], loading: false, searchTerm: "", isOpen: false } }
-
-    // Board relation lookups - separate state for each field
     const [relationLookups, setRelationLookups] = useState({});
-    // Format: { columnId: { items: [], loading: false, searchTerm: "", isOpen: false } }
-
-    // Debounce timers for search
     const searchTimers = useRef({});
 
     useEffect(() => {
         monday.execute("valueCreatedForUser");
-
         monday
             .get("context")
             .then((res) => {
-                console.log("monday initial context:", res.data);
                 if (res && res.data) {
                     setContext(res.data);
-
                     const detectedBoardId =
                         res.data.boardId || (res.data.board && res.data.board.id) || (res.data.selectedBoard && res.data.selectedBoard.id) || null;
-
-                    console.log("App.jsx Detected board id:", detectedBoardId);
-
                     if (detectedBoardId) {
                         setBoardId(String(detectedBoardId));
                         const nameFromContext = (res.data.board && res.data.board.name) || (res.data.selectedBoard && res.data.selectedBoard.name) || null;
@@ -63,16 +213,13 @@ const App = () => {
                     }
                 }
             })
-            .catch((err) => {
-                console.error("Failed to get monday context:", err);
-            });
+            .catch((err) => console.error("Failed to get monday context:", err));
 
         monday.listen("context", (res) => {
             setContext(res.data);
             if (res && res.data) {
                 const updatedBoardId =
                     res.data.boardId || (res.data.board && res.data.board.id) || (res.data.selectedBoard && res.data.selectedBoard.id) || null;
-
                 if (updatedBoardId) {
                     setBoardId(String(updatedBoardId));
                     const updatedName = (res.data.board && res.data.board.name) || (res.data.selectedBoard && res.data.selectedBoard.name) || null;
@@ -82,10 +229,8 @@ const App = () => {
         });
     }, []);
 
-    // Fetch board columns metadata when boardId changes
     useEffect(() => {
         if (!boardId) return;
-
         getBoardColumns(boardId).then((result) => {
             if (result.success) {
                 setBoardColumns(result.columns);
@@ -94,12 +239,10 @@ const App = () => {
         });
     }, [boardId]);
 
-    // 1. Add this useEffect to handle "Click Outside" to close menus
+    // Close lookups on outside click
     useEffect(() => {
         const handleClickOutside = (event) => {
-            // Check if the click happened outside any lookup container
             if (!event.target.closest(".relation-lookup-container")) {
-                // Close all Board Relation menus
                 setRelationLookups((prev) => {
                     const newState = { ...prev };
                     let changed = false;
@@ -111,8 +254,6 @@ const App = () => {
                     });
                     return changed ? newState : prev;
                 });
-
-                // Close all People lookup menus
                 setPeopleLookups((prev) => {
                     const newState = { ...prev };
                     let changed = false;
@@ -126,30 +267,21 @@ const App = () => {
                 });
             }
         };
-
-        // Bind the event listener
         document.addEventListener("mousedown", handleClickOutside);
-        return () => {
-            // Unbind the event listener on clean up
-            document.removeEventListener("mousedown", handleClickOutside);
-        };
+        return () => document.removeEventListener("mousedown", handleClickOutside);
     }, []);
 
     useEffect(() => {
         const handleScroll = () => {
-            // Optional: Close menus on scroll to avoid alignment issues
             setRelationLookups((prev) => {
                 const newState = { ...prev };
                 Object.keys(newState).forEach((key) => (newState[key].isOpen = false));
                 return newState;
             });
         };
-
         window.addEventListener("scroll", handleScroll, true);
         return () => window.removeEventListener("scroll", handleScroll, true);
     }, []);
-
-    // Fetch Monday users once on mount
 
     const { boards: boardsFromHook } = useBoards();
     const boards = boardsFromHook || [];
@@ -160,17 +292,12 @@ const App = () => {
 
     const fetchBoardItemsForUpdate = async () => {
         if (!boardId) return;
-
-        console.log("Fetching board items for update mode...");
         setLoadingItems(true);
         setItemsError(null);
-
         try {
             const result = await retrieveBoardItems(boardId);
-
             if (result.success) {
                 setBoardItems(result.items);
-                console.log(`Loaded ${result.items.length} items from board`);
             } else {
                 setItemsError(result.error);
                 setBoardItems([]);
@@ -186,236 +313,152 @@ const App = () => {
     const handleFormActionChange = (event) => {
         const action = event.target.value;
         setFormAction(action);
-        console.log(`Form action changed to: ${action}`);
-
         setSelectedItemId("");
         setSelectedItem(null);
         setFormData({});
-
-        if (action === "update") {
-            fetchBoardItemsForUpdate();
-        }
+        if (action === "update") fetchBoardItemsForUpdate();
     };
 
     const handleItemSelection = async (event) => {
         const itemId = event.target.value;
         setSelectedItemId(itemId);
-        console.log("Selected item ID:", itemId);
-
         if (!itemId) {
             setSelectedItem(null);
             setFormData({});
             return;
         }
-
         try {
             const result = await retrieveItemById(itemId);
             if (result.success) {
                 setSelectedItem(result.item);
-                console.log("Loaded item details:", result.item);
-
                 const itemData = {};
                 itemData["name"] = result.item.name;
-
                 result.item.column_values.forEach((col) => {
                     if (col.type === "status" || col.type === "dropdown") {
                         try {
                             const parsed = JSON.parse(col.value);
-                            if (col.type === "status") {
-                                itemData[col.id] = parsed.index || "";
-                            } else if (col.type === "dropdown") {
-                                itemData[col.id] = parsed.ids || [];
-                            }
+                            if (col.type === "status") itemData[col.id] = parsed.index || "";
+                            else if (col.type === "dropdown") itemData[col.id] = parsed.ids || [];
                         } catch (e) {
                             itemData[col.id] = col.text || "";
                         }
                     } else if (col.type === "people") {
                         try {
                             const parsed = JSON.parse(col.value);
-                            const personIds = parsed.personsAndTeams?.map((p) => parseInt(p.id)) || [];
-                            itemData[col.id] = personIds;
+                            itemData[col.id] = parsed.personsAndTeams?.map((p) => parseInt(p.id)) || [];
                         } catch (e) {
                             itemData[col.id] = [];
                         }
                     } else if (col.type === "board_relation") {
                         try {
                             const parsed = JSON.parse(col.value);
-                            // Extract linked item IDs
                             const linkedItemIds = parsed.linkedPulseIds?.map((id) => parseInt(id.linkedPulseId)) || [];
-                            itemData[col.id] = linkedItemIds.length > 0 ? linkedItemIds[0] : ""; // Single select
+                            itemData[col.id] = linkedItemIds.length > 0 ? linkedItemIds[0] : "";
                         } catch (e) {
                             itemData[col.id] = "";
+                        }
+                    } else if (col.type === "phone") {
+                        // Parse phone back into { phone, countryShortName } for our PhoneInput
+                        try {
+                            const parsed = JSON.parse(col.value);
+                            itemData[col.id] = {
+                                phone: parsed.phone || "",
+                                countryShortName: parsed.countryShortName || "US",
+                            };
+                        } catch (e) {
+                            itemData[col.id] = { phone: col.text || "", countryShortName: "US" };
                         }
                     } else {
                         itemData[col.id] = col.text || col.value || "";
                     }
                 });
-
                 setFormData(itemData);
-                console.log("Form populated with item data:", itemData);
             } else {
-                console.error("Failed to load item:", result.error);
                 setSelectedItem(null);
                 setFormData({});
             }
         } catch (error) {
-            console.error("Error loading item:", error);
             setSelectedItem(null);
             setFormData({});
         }
     };
 
     const handleFieldChange = (columnId, value) => {
-        setFormData((prev) => ({
-            ...prev,
-            [columnId]: value,
-        }));
+        setFormData((prev) => ({ ...prev, [columnId]: value }));
     };
 
-    /**
-     * Get related board ID from board_relation column settings
-     */
-    const getRelatedBoardId = (columnId) => {
+    // Returns ALL board IDs linked to a board_relation column (array)
+    const getRelatedBoardIds = (columnId) => {
         const column = getColumnMetadata(columnId);
-        if (!column || !column.settings_str) return null;
-
+        if (!column || !column.settings_str) return [];
         try {
             const settings = JSON.parse(column.settings_str);
-            // boardIds is an array, get the first one
-            return settings.boardIds && settings.boardIds.length > 0 ? settings.boardIds[0] : null;
+            // boardIds is always an array in Monday's settings_str
+            return settings.boardIds && settings.boardIds.length > 0 ? settings.boardIds.map(String) : [];
         } catch (e) {
             console.error("Error parsing board_relation settings:", e);
-            return null;
+            return [];
         }
     };
 
-    /**
-     * Load related board items when lookup is opened
-     */
-    const loadRelationLookup = async (columnId, relatedBoardId) => {
-        // Close others first
+    const loadRelationLookup = async (columnId, relatedBoardIds) => {
         setRelationLookups({});
         setPeopleLookups({});
-
-        setRelationLookups((prev) => ({
-            ...prev,
-            [columnId]: { ...prev[columnId], loading: true, isOpen: true },
-        }));
-        /*
-        console.log(`Loading lookup for column ${columnId}, board ${relatedBoardId}`);
-        // First, close all other open lookups
-        setRelationLookups((prev) => {
-            const reset = { ...prev };
-            Object.keys(reset).forEach((key) => (reset[key].isOpen = false));
-            return reset;
-        });
-        // Set loading state
-        setRelationLookups((prev) => ({
-            ...prev,
-            [columnId]: {
-                ...prev[columnId],
-                loading: true,
-                isOpen: true,
-            },
-        }));
-        */
+        setRelationLookups((prev) => ({ ...prev, [columnId]: { ...prev[columnId], loading: true, isOpen: true } }));
         try {
-            const result = await retrieveBoardItems(relatedBoardId);
-
+            // Fetch from ALL linked boards in parallel
+            const result = await retrieveMultipleBoardItems(relatedBoardIds);
             if (result.success) {
                 setRelationLookups((prev) => ({
                     ...prev,
                     [columnId]: {
-                        items: result.items,
+                        items: result.items, // items tagged with boardId + boardName
                         loading: false,
                         searchTerm: "",
                         isOpen: true,
-                        boardName: result.boardName,
+                        boardNames: result.boardNames,
+                        isMultiBoard: relatedBoardIds.length > 1,
+                        partialError: result.error, // some boards may have failed
                     },
                 }));
             } else {
                 setRelationLookups((prev) => ({
                     ...prev,
-                    [columnId]: {
-                        items: [],
-                        loading: false,
-                        searchTerm: "",
-                        isOpen: true,
-                        error: result.error,
-                    },
+                    [columnId]: { items: [], loading: false, searchTerm: "", isOpen: true, error: result.error },
                 }));
             }
         } catch (error) {
-            console.error("Error loading lookup:", error);
             setRelationLookups((prev) => ({
                 ...prev,
-                [columnId]: {
-                    items: [],
-                    loading: false,
-                    searchTerm: "",
-                    isOpen: true,
-                    error: error.message,
-                },
+                [columnId]: { items: [], loading: false, searchTerm: "", isOpen: true, error: error.message },
             }));
         }
     };
 
-    /**
-     * Handle search in board_relation lookup with debouncing
-     */
-    const handleRelationSearch = (columnId, relatedBoardId, searchTerm) => {
-        console.log(`Search term for ${columnId}:`, searchTerm);
-
-        // Update search term immediately for UI responsiveness
-        setRelationLookups((prev) => ({
-            ...prev,
-            [columnId]: {
-                ...prev[columnId],
-                searchTerm: searchTerm,
-            },
-        }));
-
-        // Clear existing timer
-        if (searchTimers.current[columnId]) {
-            clearTimeout(searchTimers.current[columnId]);
-        }
-
-        // If search is empty, load all items
+    const handleRelationSearch = (columnId, relatedBoardIds, searchTerm) => {
+        setRelationLookups((prev) => ({ ...prev, [columnId]: { ...prev[columnId], searchTerm } }));
+        if (searchTimers.current[columnId]) clearTimeout(searchTimers.current[columnId]);
         if (!searchTerm || searchTerm.trim() === "") {
             searchTimers.current[columnId] = setTimeout(async () => {
-                const result = await retrieveBoardItems(relatedBoardId);
-                if (result.success) {
+                const result = await retrieveMultipleBoardItems(relatedBoardIds);
+                if (result.success)
                     setRelationLookups((prev) => ({
                         ...prev,
-                        [columnId]: {
-                            ...prev[columnId],
-                            items: result.items,
-                            loading: false,
-                        },
+                        [columnId]: { ...prev[columnId], items: result.items, boardNames: result.boardNames, loading: false },
                     }));
-                }
             }, 300);
             return;
         }
-
-        // Debounce search - wait 500ms after user stops typing
         searchTimers.current[columnId] = setTimeout(async () => {
-            setRelationLookups((prev) => ({
-                ...prev,
-                [columnId]: {
-                    ...prev[columnId],
-                    loading: true,
-                },
-            }));
-
+            setRelationLookups((prev) => ({ ...prev, [columnId]: { ...prev[columnId], loading: true } }));
             try {
-                const result = await retrieveBoardItemsByItemName(relatedBoardId, searchTerm);
-
+                const result = await retrieveMultipleBoardItemsByItemName(relatedBoardIds, searchTerm);
                 setRelationLookups((prev) => ({
                     ...prev,
                     [columnId]: {
                         ...prev[columnId],
                         items: result.success ? result.items : [],
+                        boardNames: result.boardNames || {},
                         loading: false,
                         error: result.success ? null : result.error,
                     },
@@ -423,283 +466,119 @@ const App = () => {
             } catch (error) {
                 setRelationLookups((prev) => ({
                     ...prev,
-                    [columnId]: {
-                        ...prev[columnId],
-                        items: [],
-                        loading: false,
-                        error: error.message,
-                    },
-                }));
-            }
-        }, 500); // 500ms debounce delay
-    };
-
-    /**
-     * Close relation lookup
-     */
-    const closeRelationLookup = (columnId) => {
-        setRelationLookups((prev) => ({
-            ...prev,
-            [columnId]: {
-                ...prev[columnId],
-                isOpen: false,
-                searchTerm: "",
-            },
-        }));
-    };
-
-    /**
-     * Select item from board_relation lookup
-     */
-    const selectRelationItem = (columnId, itemId, itemName) => {
-        console.log(`Selected item ${itemId} (${itemName}) for column ${columnId}`);
-        handleFieldChange(columnId, itemId);
-        //closeRelationLookup(columnId);
-        // Explicitly close the menu after selection
-        setRelationLookups((prev) => ({
-            ...prev,
-            [columnId]: { ...prev[columnId], isOpen: false },
-        }));
-    };
-    /**
-     * Load people lookup when opened
-     */
-    const loadPeopleLookup = async (columnId) => {
-        // Close others first
-        setRelationLookups({});
-        setPeopleLookups({});
-        console.log(`Loading people lookup for column ${columnId}`);
-
-        // Set loading state
-        setPeopleLookups((prev) => ({
-            ...prev,
-            [columnId]: {
-                ...prev[columnId],
-                loading: true,
-                isOpen: true,
-            },
-        }));
-
-        try {
-            const result = await getAllUsers();
-
-            if (result.success) {
-                setPeopleLookups((prev) => ({
-                    ...prev,
-                    [columnId]: {
-                        users: result.users,
-                        loading: false,
-                        searchTerm: "",
-                        isOpen: true,
-                    },
-                }));
-            } else {
-                setPeopleLookups((prev) => ({
-                    ...prev,
-                    [columnId]: {
-                        users: [],
-                        loading: false,
-                        searchTerm: "",
-                        isOpen: true,
-                        error: result.error,
-                    },
-                }));
-            }
-        } catch (error) {
-            console.error("Error loading people lookup:", error);
-            setPeopleLookups((prev) => ({
-                ...prev,
-                [columnId]: {
-                    users: [],
-                    loading: false,
-                    searchTerm: "",
-                    isOpen: true,
-                    error: error.message,
-                },
-            }));
-        }
-    };
-
-    /**
-     * Handle search in people lookup with debouncing
-     */
-    const handlePeopleSearch = (columnId, searchTerm) => {
-        console.log(`People search for ${columnId}:`, searchTerm);
-
-        // Update search term immediately for UI responsiveness
-        setPeopleLookups((prev) => ({
-            ...prev,
-            [columnId]: {
-                ...prev[columnId],
-                searchTerm: searchTerm,
-            },
-        }));
-
-        // Clear existing timer
-        const timerKey = `people_${columnId}`;
-        if (searchTimers.current[timerKey]) {
-            clearTimeout(searchTimers.current[timerKey]);
-        }
-
-        // If search is empty, load all users
-        if (!searchTerm || searchTerm.trim() === "") {
-            searchTimers.current[timerKey] = setTimeout(async () => {
-                const result = await getAllUsers();
-                if (result.success) {
-                    setPeopleLookups((prev) => ({
-                        ...prev,
-                        [columnId]: {
-                            ...prev[columnId],
-                            users: result.users,
-                            loading: false,
-                        },
-                    }));
-                }
-            }, 300);
-            return;
-        }
-
-        // Debounce search - wait 500ms after user stops typing
-        searchTimers.current[timerKey] = setTimeout(async () => {
-            setPeopleLookups((prev) => ({
-                ...prev,
-                [columnId]: {
-                    ...prev[columnId],
-                    loading: true,
-                },
-            }));
-
-            try {
-                const result = await searchUsersByNameOrEmail(searchTerm);
-
-                setPeopleLookups((prev) => ({
-                    ...prev,
-                    [columnId]: {
-                        ...prev[columnId],
-                        users: result.success ? result.users : [],
-                        loading: false,
-                        error: result.success ? null : result.error,
-                    },
-                }));
-            } catch (error) {
-                setPeopleLookups((prev) => ({
-                    ...prev,
-                    [columnId]: {
-                        ...prev[columnId],
-                        users: [],
-                        loading: false,
-                        error: error.message,
-                    },
+                    [columnId]: { ...prev[columnId], items: [], loading: false, error: error.message },
                 }));
             }
         }, 500);
     };
 
-    /**
-     * Close people lookup
-     */
-    const closePeopleLookup = (columnId) => {
-        setPeopleLookups((prev) => ({
-            ...prev,
-            [columnId]: {
-                ...prev[columnId],
-                isOpen: false,
-                searchTerm: "",
-            },
-        }));
+    const closeRelationLookup = (columnId) => {
+        setRelationLookups((prev) => ({ ...prev, [columnId]: { ...prev[columnId], isOpen: false, searchTerm: "" } }));
     };
 
-    /**
-     * Toggle user selection in people field (multi-select)
-     */
+    const selectRelationItem = (columnId, itemId, itemName) => {
+        handleFieldChange(columnId, itemId);
+        setRelationLookups((prev) => ({ ...prev, [columnId]: { ...prev[columnId], isOpen: false } }));
+    };
+
+    const loadPeopleLookup = async (columnId) => {
+        setRelationLookups({});
+        setPeopleLookups({});
+        setPeopleLookups((prev) => ({ ...prev, [columnId]: { ...prev[columnId], loading: true, isOpen: true } }));
+        try {
+            const result = await getAllUsers();
+            if (result.success) {
+                setPeopleLookups((prev) => ({ ...prev, [columnId]: { users: result.users, loading: false, searchTerm: "", isOpen: true } }));
+            } else {
+                setPeopleLookups((prev) => ({ ...prev, [columnId]: { users: [], loading: false, searchTerm: "", isOpen: true, error: result.error } }));
+            }
+        } catch (error) {
+            setPeopleLookups((prev) => ({ ...prev, [columnId]: { users: [], loading: false, searchTerm: "", isOpen: true, error: error.message } }));
+        }
+    };
+
+    const handlePeopleSearch = (columnId, searchTerm) => {
+        setPeopleLookups((prev) => ({ ...prev, [columnId]: { ...prev[columnId], searchTerm } }));
+        const timerKey = `people_${columnId}`;
+        if (searchTimers.current[timerKey]) clearTimeout(searchTimers.current[timerKey]);
+        if (!searchTerm || searchTerm.trim() === "") {
+            searchTimers.current[timerKey] = setTimeout(async () => {
+                const result = await getAllUsers();
+                if (result.success) setPeopleLookups((prev) => ({ ...prev, [columnId]: { ...prev[columnId], users: result.users, loading: false } }));
+            }, 300);
+            return;
+        }
+        searchTimers.current[timerKey] = setTimeout(async () => {
+            setPeopleLookups((prev) => ({ ...prev, [columnId]: { ...prev[columnId], loading: true } }));
+            try {
+                const result = await searchUsersByNameOrEmail(searchTerm);
+                setPeopleLookups((prev) => ({
+                    ...prev,
+                    [columnId]: { ...prev[columnId], users: result.success ? result.users : [], loading: false, error: result.success ? null : result.error },
+                }));
+            } catch (error) {
+                setPeopleLookups((prev) => ({ ...prev, [columnId]: { ...prev[columnId], users: [], loading: false, error: error.message } }));
+            }
+        }, 500);
+    };
+
+    const closePeopleLookup = (columnId) => {
+        setPeopleLookups((prev) => ({ ...prev, [columnId]: { ...prev[columnId], isOpen: false, searchTerm: "" } }));
+    };
+
     const togglePeopleSelection = (columnId, userId) => {
         const currentValue = formData[columnId] || [];
         const userIdNum = parseInt(userId);
-
-        let newValue;
-        if (currentValue.includes(userIdNum)) {
-            // Remove user if already selected
-            newValue = currentValue.filter((id) => id !== userIdNum);
-        } else {
-            // Add user if not selected
-            newValue = [...currentValue, userIdNum];
-        }
-
-        console.log(`People field ${columnId} updated:`, newValue);
+        const newValue = currentValue.includes(userIdNum) ? currentValue.filter((id) => id !== userIdNum) : [...currentValue, userIdNum];
         handleFieldChange(columnId, newValue);
     };
-    /**
-     * Clear selected value for board_relation field
-     */
+
     const clearRelationSelection = (columnId, e) => {
-        e.stopPropagation(); // Prevent opening the lookup
-        console.log(`Clearing selection for relation field: ${columnId}`);
+        e.stopPropagation();
         handleFieldChange(columnId, "");
     };
 
-    /**
-     * Clear selected values for people field
-     */
     const clearPeopleSelection = (columnId, e) => {
-        e.stopPropagation(); // Prevent opening the lookup
-        console.log(`Clearing selection for people field: ${columnId}`);
+        e.stopPropagation();
         handleFieldChange(columnId, []);
     };
+
     const toggleSection = (sectionId) => {
-        setCollapsedSections((prev) => ({
-            ...prev,
-            [sectionId]: !prev[sectionId],
-        }));
+        setCollapsedSections((prev) => ({ ...prev, [sectionId]: !prev[sectionId] }));
     };
 
-    /**
-     * Get column metadata by column ID
-     */
-    const getColumnMetadata = (columnId) => {
-        return boardColumns.find((col) => col.id === columnId);
-    };
+    const getColumnMetadata = (columnId) => boardColumns.find((col) => col.id === columnId);
 
-    /**
-     * Parse status column settings to get labels
-     */
     const getStatusLabels = (columnId) => {
         const column = getColumnMetadata(columnId);
         if (!column || !column.settings_str) return [];
-
         try {
             const settings = JSON.parse(column.settings_str);
             const labels = settings.labels || {};
             const labelsColors = settings.labels_colors || {};
-
             return Object.keys(labels).map((index) => ({
-                index: index,
+                index,
                 label: labels[index],
                 color: labelsColors[index]?.color || "#ccc",
             }));
         } catch (e) {
-            console.error("Error parsing status settings:", e);
             return [];
         }
     };
 
-    /**
-     * Parse dropdown column settings to get labels
-     */
     const getDropdownLabels = (columnId) => {
         const column = getColumnMetadata(columnId);
         if (!column || !column.settings_str) return [];
-
         try {
             const settings = JSON.parse(column.settings_str);
             return settings.labels || [];
         } catch (e) {
-            console.error("Error parsing dropdown settings:", e);
             return [];
         }
     };
 
     const renderField = (field) => {
-        const value = formData[field.columnId] || "";
+        const value = formData[field.columnId] !== undefined ? formData[field.columnId] : "";
         const columnMetadata = getColumnMetadata(field.columnId);
 
         const inputStyle = {
@@ -729,10 +608,8 @@ const App = () => {
             case "dropdown": {
                 const labels = getDropdownLabels(field.columnId);
                 const dropdownValue = Array.isArray(value) ? value : value ? [value] : [];
-
                 const settings = columnMetadata ? JSON.parse(columnMetadata.settings_str || "{}") : {};
                 const limitSelect = settings.limit_select;
-
                 if (limitSelect) {
                     return (
                         <select
@@ -753,14 +630,13 @@ const App = () => {
                         <select
                             multiple
                             value={dropdownValue.map(String)}
-                            onChange={(e) => {
-                                const selected = Array.from(e.target.selectedOptions).map((opt) => parseInt(opt.value));
-                                handleFieldChange(field.columnId, selected);
-                            }}
-                            style={{
-                                ...inputStyle,
-                                minHeight: "100px",
-                            }}
+                            onChange={(e) =>
+                                handleFieldChange(
+                                    field.columnId,
+                                    Array.from(e.target.selectedOptions).map((opt) => parseInt(opt.value)),
+                                )
+                            }
+                            style={{ ...inputStyle, minHeight: "100px" }}
                         >
                             {labels.map((label) => (
                                 <option key={label.id} value={label.id}>
@@ -774,55 +650,39 @@ const App = () => {
 
             case "people": {
                 const selectedPeople = Array.isArray(value) ? value : [];
-
                 const lookup = peopleLookups[field.columnId] || {};
                 const isOpen = lookup.isOpen || false;
-
-                // Get selected user names for display
                 const selectedUserNames = [];
                 if (selectedPeople.length > 0 && lookup.users) {
                     selectedPeople.forEach((userId) => {
                         const found = lookup.users.find((u) => parseInt(u.id) === parseInt(userId));
-                        if (found) {
-                            selectedUserNames.push(found.name);
-                        }
+                        if (found) selectedUserNames.push(found.name);
                     });
                 }
-
                 const displayText = selectedUserNames.length > 0 ? selectedUserNames.join(", ") : `-- Select ${field.label} --`;
-
                 return (
                     <div className="relation-lookup-container">
-                        {/* Trigger */}
                         <div
                             className={`relation-lookup-trigger ${isOpen ? "open" : ""}`}
                             onClick={() => {
-                                if (!isOpen) {
-                                    loadPeopleLookup(field.columnId);
-                                }
+                                if (!isOpen) loadPeopleLookup(field.columnId);
                             }}
                         >
                             <span className={`relation-lookup-trigger-text ${selectedUserNames.length === 0 ? "placeholder" : ""}`}>{displayText}</span>
-
-                            {/* Clear button (X) - only show if people are selected */}
                             {selectedPeople.length > 0 && (
                                 <button
                                     className="relation-lookup-clear-btn"
                                     onClick={(e) => clearPeopleSelection(field.columnId, e)}
-                                    title="Clear all selections"
+                                    title="Clear all"
                                     type="button"
                                 >
                                     ×
                                 </button>
                             )}
-
                             <span className="relation-lookup-trigger-icon">{isOpen ? "▲" : "▼"}</span>
                         </div>
-
-                        {/* Dropdown */}
                         {isOpen && (
                             <div className="relation-lookup-dropdown">
-                                {/* Header with search */}
                                 <div className="relation-lookup-header">
                                     <input
                                         type="text"
@@ -842,79 +702,66 @@ const App = () => {
                                         Close
                                     </button>
                                 </div>
-
-                                {/* Results */}
                                 <div className="relation-lookup-results">
-                                    {/* Loading */}
                                     {lookup.loading && <div className="relation-lookup-loading">Loading users...</div>}
-
-                                    {/* Error */}
                                     {!lookup.loading && lookup.error && <div className="relation-lookup-error">{lookup.error}</div>}
-
-                                    {/* Empty */}
                                     {!lookup.loading && !lookup.error && lookup.users && lookup.users.length === 0 && (
                                         <div className="relation-lookup-empty">No users found</div>
                                     )}
-
-                                    {/* Users */}
-                                    {!lookup.loading && lookup.users && lookup.users.length > 0 && (
-                                        <>
-                                            {lookup.users.map((user) => {
-                                                const isSelected = selectedPeople.includes(parseInt(user.id));
-
-                                                return (
-                                                    <div
-                                                        key={user.id}
-                                                        className={`relation-lookup-item people-item ${isSelected ? "selected" : ""}`}
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            togglePeopleSelection(field.columnId, user.id);
-                                                        }}
-                                                    >
-                                                        <div style={{ display: "flex", alignItems: "center", width: "100%" }}>
-                                                            <input type="checkbox" checked={isSelected} readOnly style={{ marginRight: "10px" }} />
-                                                            {user.photo_thumb && (
-                                                                <img
-                                                                    src={user.photo_thumb}
-                                                                    alt={user.name}
-                                                                    style={{
-                                                                        width: "24px",
-                                                                        height: "24px",
-                                                                        borderRadius: "50%",
-                                                                        marginRight: "10px",
-                                                                        objectFit: "cover",
-                                                                    }}
-                                                                />
-                                                            )}
-                                                            <div style={{ flex: 1 }}>
-                                                                <div className="relation-lookup-item-name">
-                                                                    {user.name}
-                                                                    {user.is_admin && (
-                                                                        <span
-                                                                            style={{
-                                                                                fontSize: "11px",
-                                                                                padding: "2px 6px",
-                                                                                backgroundColor: "#0073ea",
-                                                                                color: "white",
-                                                                                borderRadius: "3px",
-                                                                                marginLeft: "8px",
-                                                                            }}
-                                                                        >
-                                                                            Admin
-                                                                        </span>
-                                                                    )}
-                                                                </div>
-                                                                {user.email && <div className="relation-lookup-item-id">{user.email}</div>}
+                                    {!lookup.loading &&
+                                        lookup.users &&
+                                        lookup.users.length > 0 &&
+                                        lookup.users.map((user) => {
+                                            const isSelected = selectedPeople.includes(parseInt(user.id));
+                                            return (
+                                                <div
+                                                    key={user.id}
+                                                    className={`relation-lookup-item people-item ${isSelected ? "selected" : ""}`}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        togglePeopleSelection(field.columnId, user.id);
+                                                    }}
+                                                >
+                                                    <div style={{ display: "flex", alignItems: "center", width: "100%" }}>
+                                                        <input type="checkbox" checked={isSelected} readOnly style={{ marginRight: "10px" }} />
+                                                        {user.photo_thumb && (
+                                                            <img
+                                                                src={user.photo_thumb}
+                                                                alt={user.name}
+                                                                style={{
+                                                                    width: "24px",
+                                                                    height: "24px",
+                                                                    borderRadius: "50%",
+                                                                    marginRight: "10px",
+                                                                    objectFit: "cover",
+                                                                }}
+                                                            />
+                                                        )}
+                                                        <div style={{ flex: 1 }}>
+                                                            <div className="relation-lookup-item-name">
+                                                                {user.name}
+                                                                {user.is_admin && (
+                                                                    <span
+                                                                        style={{
+                                                                            fontSize: "11px",
+                                                                            padding: "2px 6px",
+                                                                            backgroundColor: "#0073ea",
+                                                                            color: "white",
+                                                                            borderRadius: "3px",
+                                                                            marginLeft: "8px",
+                                                                        }}
+                                                                    >
+                                                                        Admin
+                                                                    </span>
+                                                                )}
                                                             </div>
+                                                            {user.email && <div className="relation-lookup-item-id">{user.email}</div>}
                                                         </div>
                                                     </div>
-                                                );
-                                            })}
-                                        </>
-                                    )}
+                                                </div>
+                                            );
+                                        })}
                                 </div>
-
-                                {/* Footer */}
                                 {lookup.users && lookup.users.length > 0 && (
                                     <div className="relation-lookup-footer">
                                         {selectedPeople.length} selected of {lookup.users.length} user(s)
@@ -937,75 +784,61 @@ const App = () => {
                     />
                 );
 
+            // =====================================================
+            // PHONE: Uses the PhoneInput component with country picker
+            // =====================================================
             case "phone":
-                return (
-                    <input
-                        type="tel"
-                        value={value}
-                        onChange={(e) => handleFieldChange(field.columnId, e.target.value)}
-                        placeholder={`Enter ${field.label} (e.g. 9885551234)`}
-                        style={inputStyle}
-                    />
-                );
+                return <PhoneInput columnId={field.columnId} value={value} onChange={handleFieldChange} label={field.label} />;
 
             case "board_relation": {
-                const relatedBoardId = getRelatedBoardId(field.columnId);
-                if (!relatedBoardId) {
-                    return <div style={{ fontSize: "13px", color: "#999" }}>Board relation not configured</div>;
-                }
-
+                const relatedBoardIds = getRelatedBoardIds(field.columnId);
+                if (relatedBoardIds.length === 0) return <div style={{ fontSize: "13px", color: "#999" }}>Board relation not configured</div>;
                 const lookup = relationLookups[field.columnId] || {};
                 const isOpen = lookup.isOpen || false;
                 const selectedItemId = value;
-
-                // Find selected item name
                 let selectedItemName = "";
                 if (selectedItemId && lookup.items) {
                     const found = lookup.items.find((item) => String(item.id) === String(selectedItemId));
-                    selectedItemName = found ? found.name : `Item ${selectedItemId}`;
+                    // Show "Item Name (Board Name)" when multiple boards are linked
+                    selectedItemName = found ? (lookup.isMultiBoard ? `${found.name} (${found.boardName})` : found.name) : `Item ${selectedItemId}`;
                 }
+                // Footer label: one board name or count
+                const footerLabel = lookup.isMultiBoard
+                    ? `${Object.keys(lookup.boardNames || {}).length} boards`
+                    : Object.values(lookup.boardNames || {})[0] || "";
 
                 return (
                     <div className="relation-lookup-container">
-                        {/* Trigger */}
                         <div
                             className={`relation-lookup-trigger ${isOpen ? "open" : ""}`}
                             onClick={() => {
-                                if (!isOpen) {
-                                    loadRelationLookup(field.columnId, relatedBoardId);
-                                }
+                                if (!isOpen) loadRelationLookup(field.columnId, relatedBoardIds);
                             }}
                         >
                             <span className={`relation-lookup-trigger-text ${!selectedItemName ? "placeholder" : ""}`}>
                                 {selectedItemName || `-- Select ${field.label} --`}
                             </span>
-
-                            {/* Clear button (X) - only show if something is selected */}
                             {selectedItemId && (
                                 <button
                                     className="relation-lookup-clear-btn"
                                     onClick={(e) => clearRelationSelection(field.columnId, e)}
-                                    title="Clear selection"
+                                    title="Clear"
                                     type="button"
                                 >
                                     ×
                                 </button>
                             )}
-
                             <span className="relation-lookup-trigger-icon">{isOpen ? "▲" : "▼"}</span>
                         </div>
-
-                        {/* Dropdown */}
                         {isOpen && (
                             <div className="relation-lookup-dropdown">
-                                {/* Header with search */}
                                 <div className="relation-lookup-header">
                                     <input
                                         type="text"
                                         className="relation-lookup-search"
                                         placeholder="Search by name..."
                                         value={lookup.searchTerm || ""}
-                                        onChange={(e) => handleRelationSearch(field.columnId, relatedBoardId, e.target.value)}
+                                        onChange={(e) => handleRelationSearch(field.columnId, relatedBoardIds, e.target.value)}
                                         autoFocus
                                     />
                                     <button
@@ -1018,44 +851,65 @@ const App = () => {
                                         Close
                                     </button>
                                 </div>
-
-                                {/* Results */}
                                 <div className="relation-lookup-results">
-                                    {/* Loading */}
                                     {lookup.loading && <div className="relation-lookup-loading">Loading...</div>}
-
-                                    {/* Error */}
-                                    {!lookup.loading && lookup.error && <div className="relation-lookup-error">{lookup.error}</div>}
-
-                                    {/* Empty */}
+                                    {!lookup.loading && lookup.error && !lookup.items?.length && <div className="relation-lookup-error">{lookup.error}</div>}
                                     {!lookup.loading && !lookup.error && lookup.items && lookup.items.length === 0 && (
                                         <div className="relation-lookup-empty">No items found</div>
                                     )}
+                                    {!lookup.loading &&
+                                        lookup.items &&
+                                        lookup.items.length > 0 &&
+                                        (() => {
+                                            // Group by board when multi-board
+                                            if (!lookup.isMultiBoard) {
+                                                return lookup.items.map((item) => (
+                                                    <div
+                                                        key={item.id}
+                                                        className={`relation-lookup-item ${String(selectedItemId) === String(item.id) ? "selected" : ""}`}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            selectRelationItem(field.columnId, item.id, item.name);
+                                                        }}
+                                                    >
+                                                        <div className="relation-lookup-item-name">{item.name}</div>
+                                                        <div className="relation-lookup-item-id">ID: {item.id}</div>
+                                                    </div>
+                                                ));
+                                            }
 
-                                    {/* Items */}
-                                    {!lookup.loading && lookup.items && lookup.items.length > 0 && (
-                                        <>
-                                            {lookup.items.map((item) => (
-                                                <div
-                                                    key={item.id}
-                                                    className={`relation-lookup-item ${String(selectedItemId) === String(item.id) ? "selected" : ""}`}
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        selectRelationItem(field.columnId, item.id, item.name);
-                                                    }}
-                                                >
-                                                    <div className="relation-lookup-item-name">{item.name}</div>
-                                                    <div className="relation-lookup-item-id">ID: {item.id}</div>
+                                            // Multi-board: group items under board headers
+                                            const grouped = {};
+                                            lookup.items.forEach((item) => {
+                                                const key = item.boardId;
+                                                if (!grouped[key]) grouped[key] = { boardName: item.boardName, items: [] };
+                                                grouped[key].items.push(item);
+                                            });
+
+                                            return Object.entries(grouped).map(([boardId, group]) => (
+                                                <div key={boardId}>
+                                                    <div className="relation-lookup-board-header">{group.boardName}</div>
+                                                    {group.items.map((item) => (
+                                                        <div
+                                                            key={item.id}
+                                                            className={`relation-lookup-item ${String(selectedItemId) === String(item.id) ? "selected" : ""}`}
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                selectRelationItem(field.columnId, item.id, item.name);
+                                                            }}
+                                                        >
+                                                            <div className="relation-lookup-item-name">{item.name}</div>
+                                                            <div className="relation-lookup-item-id">ID: {item.id}</div>
+                                                        </div>
+                                                    ))}
                                                 </div>
-                                            ))}
-                                        </>
-                                    )}
+                                            ));
+                                        })()}
                                 </div>
-
-                                {/* Footer */}
                                 {lookup.items && lookup.items.length > 0 && (
                                     <div className="relation-lookup-footer">
-                                        {lookup.items.length} item(s) {lookup.boardName && `from ${lookup.boardName}`}
+                                        {lookup.items.length} item(s) from {footerLabel}
+                                        {lookup.partialError && <span style={{ color: "#e57373", marginLeft: "8px" }}>⚠ Some boards unavailable</span>}
                                     </div>
                                 )}
                             </div>
@@ -1063,6 +917,7 @@ const App = () => {
                     </div>
                 );
             }
+
             case "name":
             case "text":
                 return (
@@ -1074,7 +929,6 @@ const App = () => {
                         style={inputStyle}
                     />
                 );
-
             case "long_text":
                 return (
                     <textarea
@@ -1082,13 +936,9 @@ const App = () => {
                         onChange={(e) => handleFieldChange(field.columnId, e.target.value)}
                         placeholder={`Enter ${field.label}`}
                         rows={4}
-                        style={{
-                            ...inputStyle,
-                            resize: "vertical",
-                        }}
+                        style={{ ...inputStyle, resize: "vertical" }}
                     />
                 );
-
             case "numbers":
                 return (
                     <input
@@ -1099,10 +949,8 @@ const App = () => {
                         style={inputStyle}
                     />
                 );
-
             case "date":
                 return <input type="date" value={value} onChange={(e) => handleFieldChange(field.columnId, e.target.value)} style={inputStyle} />;
-
             case "checkbox":
                 return (
                     <label style={{ display: "flex", alignItems: "center", cursor: "pointer" }}>
@@ -1115,7 +963,6 @@ const App = () => {
                         <span>Yes</span>
                     </label>
                 );
-
             case "formula":
             case "mirror":
                 return (
@@ -1125,14 +972,9 @@ const App = () => {
                         readOnly
                         disabled
                         placeholder="(Calculated field)"
-                        style={{
-                            ...inputStyle,
-                            backgroundColor: "#f5f5f5",
-                            cursor: "not-allowed",
-                        }}
+                        style={{ ...inputStyle, backgroundColor: "#f5f5f5", cursor: "not-allowed" }}
                     />
                 );
-
             case "doc":
                 return (
                     <input
@@ -1143,7 +985,6 @@ const App = () => {
                         style={inputStyle}
                     />
                 );
-
             default:
                 return (
                     <input
@@ -1157,153 +998,77 @@ const App = () => {
         }
     };
 
-    /**
-     * Create a new item in Monday.com
-     */
-    const createItem = async (recordValues) => {
-        console.log("Creating item with values:", recordValues);
+    // =============================================================
+    // FORMAT COLUMN VALUE FOR API (shared by create and update)
+    // =============================================================
+    const formatColumnValue = (columnId, value, columnMeta) => {
+        switch (columnMeta.type) {
+            case "status": {
+                const statusIndex = parseInt(value);
+                return !isNaN(statusIndex) ? { index: statusIndex } : null;
+            }
+            case "dropdown": {
+                const ids = Array.isArray(value) ? value : [value];
+                const validIds = ids.filter((id) => id !== "" && id !== null).map((id) => parseInt(id));
+                return validIds.length > 0 ? { ids: validIds } : null;
+            }
+            case "people": {
+                const peopleIds = Array.isArray(value) ? value : [value];
+                const validPeopleIds = peopleIds.filter((id) => id !== "" && id !== null);
+                return validPeopleIds.length > 0 ? { personsAndTeams: validPeopleIds.map((id) => ({ id: parseInt(id), kind: "person" })) } : null;
+            }
+            case "board_relation": {
+                const relationIds = Array.isArray(value) ? value : [value];
+                const validRelationIds = relationIds.filter((id) => id !== "" && id !== null);
+                return validRelationIds.length > 0 ? { item_ids: validRelationIds.map((id) => parseInt(id)) } : null;
+            }
+            case "checkbox":
+                return { checked: value ? "true" : "false" };
+            case "date":
+                return String(value).trim() !== "" ? { date: value } : null;
+            case "numbers":
+                return String(value);
+            case "text":
+            case "long_text":
+                return String(value);
+            case "email":
+                return String(value).trim() !== "" ? { email: String(value).trim(), text: String(value).trim() } : null;
+            case "phone": {
+                // value is { phone: "...", countryShortName: "..." }
+                const phoneObj = value && typeof value === "object" ? value : null;
+                if (!phoneObj || !phoneObj.phone || String(phoneObj.phone).trim() === "") return null;
+                const cleanPhone = String(phoneObj.phone).replace(/[\s\-().]/g, "");
+                return { phone: cleanPhone, countryShortName: phoneObj.countryShortName || "US" };
+            }
+            default:
+                return String(value);
+        }
+    };
 
+    const createItem = async (recordValues) => {
         try {
             const itemName = recordValues.name || "New Item";
             const columnValues = {};
-
             Object.keys(recordValues).forEach((columnId) => {
                 if (columnId === "name") return;
-
                 const value = recordValues[columnId];
                 const columnMeta = getColumnMetadata(columnId);
-
                 if (!columnMeta) return;
-
-                // Skip empty values
-                if (value === "" || value === null || value === undefined) {
-                    console.log(`Skipping empty value for column: ${columnId}`);
-                    return;
-                }
-
-                // Format value based on column type
-                switch (columnMeta.type) {
-                    case "status":
-                        const statusIndex = parseInt(value);
-                        if (!isNaN(statusIndex)) {
-                            columnValues[columnId] = { index: statusIndex };
-                        }
-                        break;
-
-                    case "dropdown":
-                        const ids = Array.isArray(value) ? value : [value];
-                        const validIds = ids.filter((id) => id !== "" && id !== null).map((id) => parseInt(id));
-                        if (validIds.length > 0) {
-                            columnValues[columnId] = { ids: validIds };
-                        }
-                        break;
-
-                    case "people":
-                        const peopleIds = Array.isArray(value) ? value : [value];
-                        const validPeopleIds = peopleIds.filter((id) => id !== "" && id !== null);
-                        if (validPeopleIds.length > 0) {
-                            columnValues[columnId] = {
-                                personsAndTeams: validPeopleIds.map((id) => ({
-                                    id: parseInt(id),
-                                    kind: "person",
-                                })),
-                            };
-                        }
-                        break;
-
-                    case "board_relation":
-                        // Board relation expects: {"item_ids": [123, 456]}
-                        const relationIds = Array.isArray(value) ? value : [value];
-                        const validRelationIds = relationIds.filter((id) => id !== "" && id !== null);
-                        if (validRelationIds.length > 0) {
-                            columnValues[columnId] = {
-                                item_ids: validRelationIds.map((id) => parseInt(id)),
-                            };
-                        }
-                        break;
-
-                    case "checkbox":
-                        columnValues[columnId] = { checked: value ? "true" : "false" };
-                        break;
-
-                    case "date":
-                        if (value.trim() !== "") {
-                            columnValues[columnId] = { date: value };
-                        }
-                        break;
-
-                    case "numbers":
-                        columnValues[columnId] = String(value);
-                        break;
-
-                    case "text":
-                    case "long_text":
-                        columnValues[columnId] = String(value);
-                        break;
-                    case "email":
-                        // Monday expects: { "email": "user@example.com", "text": "user@example.com" }
-                        // "text" is the display label — use the email address itself
-                        if (String(value).trim() !== "") {
-                            columnValues[columnId] = {
-                                email: String(value).trim(),
-                                text: String(value).trim(),
-                            };
-                        }
-                        break;
-
-                    case "phone":
-                        // Monday expects: { "phone": "9888002909", "countryShortName": "US" }
-                        // Strip spaces/dashes from the phone number string
-                        if (String(value).trim() !== "") {
-                            const cleanPhone = String(value).replace(/[\s\-().+]/g, "");
-                            columnValues[columnId] = {
-                                phone: cleanPhone,
-                                countryShortName: "US", // Default country — adjust if needed
-                            };
-                        }
-                        break;
-                    default:
-                        columnValues[columnId] = String(value);
-                }
+                const isEmpty =
+                    value === "" || value === null || value === undefined || (typeof value === "object" && !Array.isArray(value) && value.phone === "");
+                if (isEmpty) return;
+                const formatted = formatColumnValue(columnId, value, columnMeta);
+                if (formatted !== null) columnValues[columnId] = formatted;
             });
 
-            const columnValuesJSON = JSON.stringify(columnValues);
-
-            console.log("Column values object:", columnValues);
-            console.log("Column values JSON:", columnValuesJSON);
-
-            const mutation = `
-                mutation($boardId: ID!, $itemName: String!, $columnValues: JSON!) {
-                    create_item(
-                        board_id: $boardId
-                        item_name: $itemName
-                        column_values: $columnValues
-                    ) {
-                        id
-                        name
-                    }
-                }
-            `;
-
-            const variables = {
-                boardId: boardId,
-                itemName: itemName,
-                columnValues: columnValuesJSON,
-            };
-
-            console.log("=== DEBUG: Full mutation request ===");
-            console.log("Variables:", variables);
-
+            const mutation = `mutation($boardId: ID!, $itemName: String!, $columnValues: JSON!) {
+                create_item(board_id: $boardId item_name: $itemName column_values: $columnValues) { id name }
+            }`;
+            const variables = { boardId, itemName, columnValues: JSON.stringify(columnValues) };
             const response = await monday.api(mutation, { variables });
 
             if (response.data && response.data.create_item) {
-                console.log("Item created successfully:", response.data.create_item);
-                monday.execute("notice", {
-                    message: `Item "${response.data.create_item.name}" created successfully!`,
-                    type: "success",
-                    timeout: 5000,
-                });
-
+                monday.execute("notice", { message: `Item "${response.data.create_item.name}" created successfully!`, type: "success", timeout: 5000 });
                 setFormData({});
                 return { success: true, item: response.data.create_item };
             } else {
@@ -1311,433 +1076,130 @@ const App = () => {
             }
         } catch (error) {
             console.error("Error creating item:", error);
-            monday.execute("notice", {
-                message: `Error creating item: ${error.message}`,
-                type: "error",
-                timeout: 5000,
-            });
+            monday.execute("notice", { message: `Error creating item: ${error.message}`, type: "error", timeout: 5000 });
             return { success: false, error: error.message };
         }
     };
 
-    /**
-     * Update an existing item in Monday.com
-     */
     const updateItem = async (itemId, recordValues) => {
-        console.log("Updating item", itemId, "with values:", recordValues);
-
         try {
             const columnValues = {};
-
             Object.keys(recordValues).forEach((columnId) => {
                 if (columnId === "name") return;
-
                 const value = recordValues[columnId];
                 const columnMeta = getColumnMetadata(columnId);
-
                 if (!columnMeta) return;
-
-                // Skip empty values
-                if (value === "" || value === null || value === undefined) {
-                    return;
-                }
-
-                // Format value based on column type
-                switch (columnMeta.type) {
-                    case "status":
-                        const statusIndex = parseInt(value);
-                        if (!isNaN(statusIndex)) {
-                            columnValues[columnId] = { index: statusIndex };
-                        }
-                        break;
-
-                    case "dropdown":
-                        const ids = Array.isArray(value) ? value : [value];
-                        const validIds = ids.filter((id) => id !== "" && id !== null).map((id) => parseInt(id));
-                        if (validIds.length > 0) {
-                            columnValues[columnId] = { ids: validIds };
-                        }
-                        break;
-
-                    case "people":
-                        const peopleIds = Array.isArray(value) ? value : [value];
-                        const validPeopleIds = peopleIds.filter((id) => id !== "" && id !== null);
-                        if (validPeopleIds.length > 0) {
-                            columnValues[columnId] = {
-                                personsAndTeams: validPeopleIds.map((id) => ({
-                                    id: parseInt(id),
-                                    kind: "person",
-                                })),
-                            };
-                        }
-                        break;
-
-                    case "board_relation":
-                        const relationIds = Array.isArray(value) ? value : [value];
-                        const validRelationIds = relationIds.filter((id) => id !== "" && id !== null);
-                        if (validRelationIds.length > 0) {
-                            columnValues[columnId] = {
-                                item_ids: validRelationIds.map((id) => parseInt(id)),
-                            };
-                        }
-                        break;
-
-                    case "checkbox":
-                        columnValues[columnId] = { checked: value ? "true" : "false" };
-                        break;
-
-                    case "date":
-                        if (String(value).trim() !== "") {
-                            columnValues[columnId] = { date: value };
-                        }
-                        break;
-
-                    case "numbers":
-                        columnValues[columnId] = String(value);
-                        break;
-
-                    case "text":
-                    case "long_text":
-                        columnValues[columnId] = String(value);
-                        break;
-                    case "email":
-                        if (String(value).trim() !== "") {
-                            columnValues[columnId] = {
-                                email: String(value).trim(),
-                                text: String(value).trim(),
-                            };
-                        }
-                        break;
-
-                    case "phone":
-                        if (String(value).trim() !== "") {
-                            const cleanPhone = String(value).replace(/[\s\-().+]/g, "");
-                            columnValues[columnId] = {
-                                phone: cleanPhone,
-                                countryShortName: "US", // Default country — adjust if needed
-                            };
-                        }
-                        break;
-                    default:
-                        columnValues[columnId] = String(value);
-                }
+                const isEmpty =
+                    value === "" || value === null || value === undefined || (typeof value === "object" && !Array.isArray(value) && value.phone === "");
+                if (isEmpty) return;
+                const formatted = formatColumnValue(columnId, value, columnMeta);
+                if (formatted !== null) columnValues[columnId] = formatted;
             });
 
-            const mutation = `
-                mutation($boardId: ID!, $itemId: ID!, $columnValues: JSON!) {
-                    change_multiple_column_values(
-                        board_id: $boardId
-                        item_id: $itemId
-                        column_values: $columnValues
-                        create_labels_if_missing: false
-                    ) {
-                        id
-                        name
-                    }
-                }
-            `;
-
-            const variables = {
-                boardId: boardId,
-                itemId: itemId,
-                columnValues: JSON.stringify(columnValues),
-            };
-
-            console.log("Update mutation variables:", variables);
-
+            const mutation = `mutation($boardId: ID!, $itemId: ID!, $columnValues: JSON!) {
+                change_multiple_column_values(board_id: $boardId item_id: $itemId column_values: $columnValues create_labels_if_missing: false) { id name }
+            }`;
+            const variables = { boardId, itemId, columnValues: JSON.stringify(columnValues) };
             const response = await monday.api(mutation, { variables });
 
             if (response.data && response.data.change_multiple_column_values) {
-                console.log("Item updated successfully:", response.data.change_multiple_column_values);
-                monday.execute("notice", {
-                    message: `Item updated successfully!`,
-                    type: "success",
-                    timeout: 5000,
-                });
-
+                monday.execute("notice", { message: `Item updated successfully!`, type: "success", timeout: 5000 });
                 return { success: true, item: response.data.change_multiple_column_values };
             } else {
                 throw new Error("Failed to update item");
             }
         } catch (error) {
             console.error("Error updating item:", error);
-            monday.execute("notice", {
-                message: `Error updating item: ${error.message}`,
-                type: "error",
-                timeout: 5000,
-            });
+            monday.execute("notice", { message: `Error updating item: ${error.message}`, type: "error", timeout: 5000 });
             return { success: false, error: error.message };
         }
     };
 
-    /**
-     * Validate form data before submission
-     * @param {Object} formData - The form data to validate
-     * @param {Array} validatedSections - Page layout sections with field definitions
-     * @param {string} formAction - "create" or "update"
-     * @returns {Object} { isValid: boolean, errors: Array }
-     */
     const validateForm = (formData, validatedSections, formAction) => {
         const errors = [];
-
-        console.log("=== FORM VALIDATION START ===");
-        console.log("Form action:", formAction);
-        console.log("Form data:", formData);
-
-        // Collect all fields from validated sections
         const allFields = [];
         validatedSections.forEach((section) => {
             if (section.sectionData && section.sectionData.fields) {
                 section.sectionData.fields.forEach((field) => {
-                    if (field.isValid && !field.duplicate) {
-                        allFields.push(field);
-                    }
+                    if (field.isValid && !field.duplicate) allFields.push(field);
                 });
             }
         });
 
-        // 1. REQUIRED FIELD VALIDATION
-        // TODO: Implement required field validation
-        // Check if fields marked as isDefault="true" have values
-        const requiredFields = allFields.filter((field) => field.isDefault === "true");
-        console.log("Required fields:", requiredFields);
+        // Required fields
+        allFields
+            .filter((f) => f.isDefault === "true")
+            .forEach((field) => {
+                const value = formData[field.columnId];
+                const isEmpty = value === undefined || value === null || value === "" || (Array.isArray(value) && value.length === 0);
+                if (isEmpty) errors.push({ type: "REQUIRED_FIELD", field: field.label, columnId: field.columnId, message: `${field.label} is required` });
+            });
 
-        requiredFields.forEach((field) => {
-            const value = formData[field.columnId];
-
-            // Check if field is empty
-            const isEmpty = value === undefined || value === null || value === "" || (Array.isArray(value) && value.length === 0);
-
-            if (isEmpty) {
-                errors.push({
-                    type: "REQUIRED_FIELD",
-                    field: field.label,
-                    columnId: field.columnId,
-                    message: `${field.label} is required`,
-                });
-            }
-        });
-
-        // 2. DATA TYPE VALIDATION
-        // TODO: Implement data type validation
-        // Validate that data types match field types
+        // Type validation
         allFields.forEach((field) => {
             const value = formData[field.columnId];
-
-            if (value === undefined || value === null || value === "") {
-                return; // Skip empty values (handled by required validation)
-            }
-
+            if (value === undefined || value === null || value === "") return;
             const columnMeta = getColumnMetadata(field.columnId);
             if (!columnMeta) return;
-
-            switch (columnMeta.type) {
-                case "numbers":
-                    // Validate that numbers field contains valid number
-                    if (isNaN(value)) {
-                        errors.push({
-                            type: "INVALID_TYPE",
-                            field: field.label,
-                            columnId: field.columnId,
-                            message: `${field.label} must be a valid number`,
-                        });
-                    }
-                    break;
-
-                case "date":
-                    // Validate date format
-                    if (value && !isValidDate(value)) {
-                        errors.push({
-                            type: "INVALID_DATE",
-                            field: field.label,
-                            columnId: field.columnId,
-                            message: `${field.label} must be a valid date`,
-                        });
-                    }
-                    break;
-
-                case "status":
-                case "dropdown":
-                    // Validate that selected index/id exists
-                    // TODO: Check against available options
-                    break;
-
-                // Add more type validations as needed
+            if (columnMeta.type === "numbers" && isNaN(value)) {
+                errors.push({ type: "INVALID_TYPE", field: field.label, columnId: field.columnId, message: `${field.label} must be a valid number` });
+            }
+            if (columnMeta.type === "date" && value && !(new Date(value) instanceof Date && !isNaN(new Date(value)))) {
+                errors.push({ type: "INVALID_DATE", field: field.label, columnId: field.columnId, message: `${field.label} must be a valid date` });
             }
         });
 
-        // 3. BUSINESS LOGIC VALIDATION
-        // TODO: Implement custom business rules
-        // Examples:
-        // - End date must be after start date
-        // - Budget must be positive
-        // - Email format validation
-        // - Phone number format validation
-
-        // Example placeholder:
-        if (formData.end_date && formData.start_date) {
-            if (new Date(formData.end_date) < new Date(formData.start_date)) {
-                errors.push({
-                    type: "BUSINESS_RULE",
-                    field: "Date Range",
-                    message: "End date must be after start date",
-                });
-            }
-        }
-
-        // 4. DUPLICATE VALIDATION
-        // TODO: Check for duplicate values in unique fields
-        // This would require querying existing items
-
-        // 5. PERMISSION VALIDATION
-        // TODO: Check if user has permission to set certain fields
-        // Example: Only admins can set certain status values
-
-        console.log("Validation errors:", errors);
-        console.log("=== FORM VALIDATION END ===");
-
-        return {
-            isValid: errors.length === 0,
-            errors: errors,
-        };
+        return { isValid: errors.length === 0, errors };
     };
 
-    /**
-     * Helper function to validate date format
-     */
-    const isValidDate = (dateString) => {
-        const date = new Date(dateString);
-        return date instanceof Date && !isNaN(date);
-    };
-
-    /**
-     * Display validation errors to user
-     */
     const displayValidationErrors = (errors) => {
         if (errors.length === 0) return;
-
-        // Group errors by type
         const errorsByType = {};
-        errors.forEach((error) => {
-            if (!errorsByType[error.type]) {
-                errorsByType[error.type] = [];
-            }
-            errorsByType[error.type].push(error);
+        errors.forEach((e) => {
+            if (!errorsByType[e.type]) errorsByType[e.type] = [];
+            errorsByType[e.type].push(e);
         });
-
-        // Build error message
         let errorMessage = "Please fix the following errors:\n\n";
-
         Object.keys(errorsByType).forEach((type) => {
-            const typeErrors = errorsByType[type];
-
-            switch (type) {
-                case "REQUIRED_FIELD":
-                    errorMessage += "Required fields:\n";
-                    typeErrors.forEach((err) => {
-                        errorMessage += `  • ${err.message}\n`;
-                    });
-                    errorMessage += "\n";
-                    break;
-
-                case "INVALID_TYPE":
-                case "INVALID_DATE":
-                    errorMessage += "Invalid values:\n";
-                    typeErrors.forEach((err) => {
-                        errorMessage += `  • ${err.message}\n`;
-                    });
-                    errorMessage += "\n";
-                    break;
-
-                case "BUSINESS_RULE":
-                    errorMessage += "Business rules:\n";
-                    typeErrors.forEach((err) => {
-                        errorMessage += `  • ${err.message}\n`;
-                    });
-                    errorMessage += "\n";
-                    break;
-            }
+            const label = type === "REQUIRED_FIELD" ? "Required fields:" : "Invalid values:";
+            errorMessage += `${label}\n`;
+            errorsByType[type].forEach((err) => {
+                errorMessage += `  • ${err.message}\n`;
+            });
+            errorMessage += "\n";
         });
-
-        // Show error notification
-        monday.execute("notice", {
-            message: errorMessage,
-            type: "error",
-            timeout: 10000,
-        });
-
-        // Also log to console for debugging
-        //console.error("Validation failed:", errors);
+        monday.execute("notice", { message: errorMessage, type: "error", timeout: 10000 });
     };
-
-    /**
-     * Get column metadata helper (if not already defined)
-     * This should already exist in your code, but included for completeness
-     */
-    // const getColumnMetadata = (columnId) => {
-    //     return boardColumns.find((col) => col.id === columnId);
-    // };
 
     const handleFormSubmit = async (e) => {
         e.preventDefault();
-
-        console.log("Form submitted with data:", formData);
-        console.log("Form action:", formAction);
-
-        // ===================================================
-        // STEP 1: VALIDATE FORM DATA
-        // ===================================================
         const validation = validateForm(formData, validatedSections, formAction);
-
         if (!validation.isValid) {
-            // Show validation errors to user
             displayValidationErrors(validation.errors);
-
-            // Scroll to first error field (optional)
             if (validation.errors.length > 0) {
                 const firstErrorField = validation.errors[0].columnId;
                 const fieldElement = document.querySelector(`[data-column-id="${firstErrorField}"]`);
-                if (fieldElement) {
-                    fieldElement.scrollIntoView({ behavior: "smooth", block: "center" });
-                }
+                if (fieldElement) fieldElement.scrollIntoView({ behavior: "smooth", block: "center" });
             }
-
-            return; // Stop submission
+            return;
         }
-
-        // ===================================================
-        // STEP 2: PROCEED WITH CREATE OR UPDATE
-        // ===================================================
         if (formAction === "create") {
-            const result = await createItem(formData);
-
-            if (result.success) {
-                // Optionally refresh the board items list if in update mode
-                // This ensures the new item appears in the dropdown
-                // fetchBoardItemsForUpdate();
-            }
+            await createItem(formData);
         } else if (formAction === "update" && selectedItemId) {
-            const result = await updateItem(selectedItemId, formData);
-
-            if (result.success) {
-                // Optionally refresh the item data
-                // handleItemSelection({ target: { value: selectedItemId } });
-            }
+            await updateItem(selectedItemId, formData);
         }
     };
 
     const loadForm = () => {
         const validSections = validatedSections.filter((section) => section.isFullyValid && section.sectionData && section.sectionData.fields);
-
         if (validSections.length === 0) {
             return (
                 <div className="error-box">
                     <h3>⚠️ Cannot Create Form</h3>
-                    <p>No valid sections found. Please check your page layout configuration.</p>
+                    <p>No valid sections found.</p>
                 </div>
             );
         }
-
         return (
             <div className="form-container">
                 {formAction === "update" && selectedItem && (
@@ -1747,16 +1209,12 @@ const App = () => {
                         </p>
                     </div>
                 )}
-
                 <form onSubmit={handleFormSubmit}>
                     {validSections.map((section) => {
                         const sectionId = section.sectionData.id;
                         const isCollapsed = collapsedSections[sectionId] || false;
-
-                        const validFields = section.sectionData.fields.filter((field) => field.isValid === true && field.duplicate === false);
-
+                        const validFields = section.sectionData.fields.filter((f) => f.isValid === true && f.duplicate === false);
                         if (validFields.length === 0) return null;
-
                         return (
                             <div key={sectionId} className="section-container">
                                 <div className="section-header" onClick={() => toggleSection(sectionId)}>
@@ -1768,7 +1226,6 @@ const App = () => {
                                     </h3>
                                     <span className="collapse-icon">{isCollapsed ? "▼" : "▲"}</span>
                                 </div>
-
                                 {!isCollapsed && (
                                     <div className="section-content">
                                         <div className="fields-grid">
@@ -1788,12 +1245,10 @@ const App = () => {
                             </div>
                         );
                     })}
-
                     <div className="form-actions">
                         <button type="submit" className="btn-primary">
                             {formAction === "create" ? "✓ Create Item" : "✓ Update Item"}
                         </button>
-
                         <button type="button" onClick={() => setFormData({})} className="btn-secondary">
                             Clear Form
                         </button>
@@ -1838,14 +1293,12 @@ const App = () => {
                             <p>Loading page layout...</p>
                         </div>
                     )}
-
                     {!pageLayoutLoading && pageLayoutError && (
                         <div className="error-box warning">
                             <h3>⚠️ Error Loading Page Layout</h3>
                             <p>{pageLayoutError}</p>
                         </div>
                     )}
-
                     {!pageLayoutLoading && !pageLayoutError && validatedSections.length === 0 && (
                         <div className="error-box danger">
                             <h3>❌ Page Layout Information Not Found</h3>
@@ -1854,7 +1307,6 @@ const App = () => {
                             </p>
                         </div>
                     )}
-
                     {!pageLayoutLoading && !pageLayoutError && validatedSections.length > 0 && (
                         <div>
                             <div className="action-selector">
@@ -1870,7 +1322,6 @@ const App = () => {
                                         />
                                         <span>Create New Record</span>
                                     </label>
-
                                     <label className="radio-label">
                                         <input
                                             type="radio"
@@ -1883,23 +1334,16 @@ const App = () => {
                                     </label>
                                 </div>
                             </div>
-
                             {formAction === "update" && (
                                 <div className="item-selector">
                                     <h3>Select Item to Update:</h3>
-
                                     {loadingItems && <p>Loading items...</p>}
-
                                     {itemsError && (
                                         <div className="error-inline">
                                             <p>Error: {itemsError}</p>
                                         </div>
                                     )}
-
-                                    {!loadingItems && !itemsError && boardItems.length === 0 && (
-                                        <p className="no-items-message">No items found in this board.</p>
-                                    )}
-
+                                    {!loadingItems && !itemsError && boardItems.length === 0 && <p className="no-items-message">No items found.</p>}
                                     {!loadingItems && !itemsError && boardItems.length > 0 && (
                                         <div>
                                             <select value={selectedItemId} onChange={handleItemSelection} className="item-dropdown">
@@ -1910,13 +1354,11 @@ const App = () => {
                                                     </option>
                                                 ))}
                                             </select>
-
                                             <p className="item-count-hint">Found {boardItems.length} item(s) in board</p>
                                         </div>
                                     )}
                                 </div>
                             )}
-
                             {(formAction === "create" || (formAction === "update" && selectedItemId)) && loadForm()}
                         </div>
                     )}
@@ -1924,6 +1366,6 @@ const App = () => {
             )}
         </div>
     );
-};;;
+};
 
 export default App;

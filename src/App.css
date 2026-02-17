@@ -514,7 +514,26 @@ body {
   pointer-events: none !important;
   cursor: pointer !important;
 }
+/* Sticky board name separator when results span multiple boards */
+.relation-lookup-board-header {
+  padding: 6px 16px 4px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #0073ea;
+  background-color: #f0f6ff;
+  border-top: 1px solid #d0e8ff;
+  border-bottom: 1px solid #d0e8ff;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
 
+/* First board header needs no top border */
+.relation-lookup-board-header:first-child {
+  border-top: none;
+}
 
 /* ===========================
    FORM ACTIONS
