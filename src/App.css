@@ -277,6 +277,7 @@ body {
 .relation-lookup-container {
   position: relative;
   width: 100%;
+  overflow: visible !important;
 }
 
 /* Trigger button/display */
@@ -420,8 +421,9 @@ body {
   overflow-y: auto !important;
   overflow-x: hidden !important;
   flex: 1 !important;
-  max-height: 280px !important;
+  max-height: 250px !important;
   background-color: #fff !important;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* Loading state */

@@ -242,6 +242,7 @@ const App = () => {
     // Close lookups on outside click
     useEffect(() => {
         const handleClickOutside = (event) => {
+            /*
             if (!event.target.closest(".relation-lookup-container")) {
                 setRelationLookups((prev) => {
                     const newState = { ...prev };
@@ -266,14 +267,49 @@ const App = () => {
                     return changed ? newState : prev;
                 });
             }
+            */
+            // Check if click is outside ANY lookup container
+            if (!event.target.closest(".relation-lookup-container")) {
+                setRelationLookups((prev) => {
+                    const newState = { ...prev };
+                    Object.keys(newState).forEach((key) => (newState[key].isOpen = false));
+                    return newState;
+                });
+                setPeopleLookups((prev) => {
+                    const newState = { ...prev };
+                    Object.keys(newState).forEach((key) => (newState[key].isOpen = false));
+                    return newState;
+                });
+            }
         };
         document.addEventListener("mousedown", handleClickOutside);
         return () => document.removeEventListener("mousedown", handleClickOutside);
     }, []);
 
     useEffect(() => {
+        /*
         const handleScroll = () => {
             setRelationLookups((prev) => {
+                const newState = { ...prev };
+                Object.keys(newState).forEach((key) => (newState[key].isOpen = false));
+                return newState;
+            });
+        };
+        */
+        const handleScroll = (event) => {
+            // If the scroll is happening inside a relation or people lookup list, DO NOT close it
+            if (event.target.closest(".relation-lookup-results") || event.target.closest(".phone-country-list")) {
+                return;
+            }
+
+            // Close menus if the user scrolls the main board or section
+            setRelationLookups((prev) => {
+                const newState = { ...prev };
+                Object.keys(newState).forEach((key) => (newState[key].isOpen = false));
+                return newState;
+            });
+
+            setPeopleLookups((prev) => {
                 const newState = { ...prev };
                 Object.keys(newState).forEach((key) => (newState[key].isOpen = false));
                 return newState;
