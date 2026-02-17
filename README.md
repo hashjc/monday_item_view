@@ -43,3 +43,10 @@ Follow the prompts to select the app and version to connect your deployment to.
     If testing locally: Select "External hosting", then paste your tunnel URL
     If deployed: Select "Client-side code via CLI". Leave the subroute field empty.
 6. Open a board, and then add your "Quickstart view example app" view!
+
+
+## On local machine
+Run
+npm intsall
+npm start
+

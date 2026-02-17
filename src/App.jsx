@@ -94,6 +94,20 @@ const App = () => {
         });
     }, [boardId]);
 
+    useEffect(() => {
+        const handleScroll = () => {
+            // Optional: Close menus on scroll to avoid alignment issues
+            setRelationLookups(prev => {
+                const newState = { ...prev };
+                Object.keys(newState).forEach(key => newState[key].isOpen = false);
+                return newState;
+            });
+        };
+
+        window.addEventListener("scroll", handleScroll, true);
+        return () => window.removeEventListener("scroll", handleScroll, true);
+    }, []);
+
     // Fetch Monday users once on mount
 
     const { boards: boardsFromHook } = useBoards();
@@ -239,7 +253,12 @@ const App = () => {
      */
     const loadRelationLookup = async (columnId, relatedBoardId) => {
         console.log(`Loading lookup for column ${columnId}, board ${relatedBoardId}`);
-
+        // First, close all other open lookups
+        setRelationLookups(prev => {
+            const reset = { ...prev };
+            Object.keys(reset).forEach(key => reset[key].isOpen = false);
+            return reset;
+        });
         // Set loading state
         setRelationLookups((prev) => ({
             ...prev,
@@ -385,7 +404,12 @@ const App = () => {
     const selectRelationItem = (columnId, itemId, itemName) => {
         console.log(`Selected item ${itemId} (${itemName}) for column ${columnId}`);
         handleFieldChange(columnId, itemId);
-        closeRelationLookup(columnId);
+        //closeRelationLookup(columnId);
+        // Explicitly close the menu after selection
+        setRelationLookups((prev) => ({
+            ...prev,
+            [columnId]: { ...prev[columnId], isOpen: false },
+        }));
     };
     /**
      * Load people lookup when opened
@@ -551,6 +575,23 @@ const App = () => {
         console.log(`People field ${columnId} updated:`, newValue);
         handleFieldChange(columnId, newValue);
     };
+    /**
+     * Clear selected value for board_relation field
+     */
+    const clearRelationSelection = (columnId, e) => {
+        e.stopPropagation(); // Prevent opening the lookup
+        console.log(`Clearing selection for relation field: ${columnId}`);
+        handleFieldChange(columnId, "");
+    };
+
+    /**
+     * Clear selected values for people field
+     */
+    const clearPeopleSelection = (columnId, e) => {
+        e.stopPropagation(); // Prevent opening the lookup
+        console.log(`Clearing selection for people field: ${columnId}`);
+        handleFieldChange(columnId, []);
+    };
     const toggleSection = (sectionId) => {
         setCollapsedSections((prev) => ({
             ...prev,
@@ -709,6 +750,19 @@ const App = () => {
                             }}
                         >
                             <span className={`relation-lookup-trigger-text ${selectedUserNames.length === 0 ? "placeholder" : ""}`}>{displayText}</span>
+
+                            {/* Clear button (X) - only show if people are selected */}
+                            {selectedPeople.length > 0 && (
+                                <button
+                                    className="relation-lookup-clear-btn"
+                                    onClick={(e) => clearPeopleSelection(field.columnId, e)}
+                                    title="Clear all selections"
+                                    type="button"
+                                >
+                                    ×
+                                </button>
+                            )}
+
                             <span className="relation-lookup-trigger-icon">{isOpen ? "▲" : "▼"}</span>
                         </div>
 
@@ -849,6 +903,19 @@ const App = () => {
                             <span className={`relation-lookup-trigger-text ${!selectedItemName ? "placeholder" : ""}`}>
                                 {selectedItemName || `-- Select ${field.label} --`}
                             </span>
+
+                            {/* Clear button (X) - only show if something is selected */}
+                            {selectedItemId && (
+                                <button
+                                    className="relation-lookup-clear-btn"
+                                    onClick={(e) => clearRelationSelection(field.columnId, e)}
+                                    title="Clear selection"
+                                    type="button"
+                                >
+                                    ×
+                                </button>
+                            )}
+
                             <span className="relation-lookup-trigger-icon">{isOpen ? "▲" : "▼"}</span>
                         </div>
 
@@ -1289,16 +1356,263 @@ const App = () => {
         }
     };
 
+    /**
+     * Validate form data before submission
+     * @param {Object} formData - The form data to validate
+     * @param {Array} validatedSections - Page layout sections with field definitions
+     * @param {string} formAction - "create" or "update"
+     * @returns {Object} { isValid: boolean, errors: Array }
+     */
+    const validateForm = (formData, validatedSections, formAction) => {
+        const errors = [];
+
+        console.log("=== FORM VALIDATION START ===");
+        console.log("Form action:", formAction);
+        console.log("Form data:", formData);
+
+        // Collect all fields from validated sections
+        const allFields = [];
+        validatedSections.forEach(section => {
+            if (section.sectionData && section.sectionData.fields) {
+                section.sectionData.fields.forEach(field => {
+                    if (field.isValid && !field.duplicate) {
+                        allFields.push(field);
+                    }
+                });
+            }
+        });
+
+        // 1. REQUIRED FIELD VALIDATION
+        // TODO: Implement required field validation
+        // Check if fields marked as isDefault="true" have values
+        const requiredFields = allFields.filter(field => field.isDefault === "true");
+        console.log("Required fields:", requiredFields);
+
+        requiredFields.forEach(field => {
+            const value = formData[field.columnId];
+
+            // Check if field is empty
+            const isEmpty =
+                value === undefined ||
+                value === null ||
+                value === "" ||
+                (Array.isArray(value) && value.length === 0);
+
+            if (isEmpty) {
+                errors.push({
+                    type: "REQUIRED_FIELD",
+                    field: field.label,
+                    columnId: field.columnId,
+                    message: `${field.label} is required`
+                });
+            }
+        });
+
+        // 2. DATA TYPE VALIDATION
+        // TODO: Implement data type validation
+        // Validate that data types match field types
+        allFields.forEach(field => {
+            const value = formData[field.columnId];
+
+            if (value === undefined || value === null || value === "") {
+                return; // Skip empty values (handled by required validation)
+            }
+
+            const columnMeta = getColumnMetadata(field.columnId);
+            if (!columnMeta) return;
+
+            switch (columnMeta.type) {
+                case "numbers":
+                    // Validate that numbers field contains valid number
+                    if (isNaN(value)) {
+                        errors.push({
+                            type: "INVALID_TYPE",
+                            field: field.label,
+                            columnId: field.columnId,
+                            message: `${field.label} must be a valid number`
+                        });
+                    }
+                    break;
+
+                case "date":
+                    // Validate date format
+                    if (value && !isValidDate(value)) {
+                        errors.push({
+                            type: "INVALID_DATE",
+                            field: field.label,
+                            columnId: field.columnId,
+                            message: `${field.label} must be a valid date`
+                        });
+                    }
+                    break;
+
+                case "status":
+                case "dropdown":
+                    // Validate that selected index/id exists
+                    // TODO: Check against available options
+                    break;
+
+                // Add more type validations as needed
+            }
+        });
+
+        // 3. BUSINESS LOGIC VALIDATION
+        // TODO: Implement custom business rules
+        // Examples:
+        // - End date must be after start date
+        // - Budget must be positive
+        // - Email format validation
+        // - Phone number format validation
+
+        // Example placeholder:
+        if (formData.end_date && formData.start_date) {
+            if (new Date(formData.end_date) < new Date(formData.start_date)) {
+                errors.push({
+                    type: "BUSINESS_RULE",
+                    field: "Date Range",
+                    message: "End date must be after start date"
+                });
+            }
+        }
+
+        // 4. DUPLICATE VALIDATION
+        // TODO: Check for duplicate values in unique fields
+        // This would require querying existing items
+
+        // 5. PERMISSION VALIDATION
+        // TODO: Check if user has permission to set certain fields
+        // Example: Only admins can set certain status values
+
+        console.log("Validation errors:", errors);
+        console.log("=== FORM VALIDATION END ===");
+
+        return {
+            isValid: errors.length === 0,
+            errors: errors
+        };
+    };
+
+    /**
+     * Helper function to validate date format
+     */
+    const isValidDate = (dateString) => {
+        const date = new Date(dateString);
+        return date instanceof Date && !isNaN(date);
+    };
+
+    /**
+     * Display validation errors to user
+     */
+    const displayValidationErrors = (errors) => {
+        if (errors.length === 0) return;
+
+        // Group errors by type
+        const errorsByType = {};
+        errors.forEach(error => {
+            if (!errorsByType[error.type]) {
+                errorsByType[error.type] = [];
+            }
+            errorsByType[error.type].push(error);
+        });
+
+        // Build error message
+        let errorMessage = "Please fix the following errors:\n\n";
+
+        Object.keys(errorsByType).forEach(type => {
+            const typeErrors = errorsByType[type];
+
+            switch (type) {
+                case "REQUIRED_FIELD":
+                    errorMessage += "Required fields:\n";
+                    typeErrors.forEach(err => {
+                        errorMessage += `  • ${err.message}\n`;
+                    });
+                    errorMessage += "\n";
+                    break;
+
+                case "INVALID_TYPE":
+                case "INVALID_DATE":
+                    errorMessage += "Invalid values:\n";
+                    typeErrors.forEach(err => {
+                        errorMessage += `  • ${err.message}\n`;
+                    });
+                    errorMessage += "\n";
+                    break;
+
+                case "BUSINESS_RULE":
+                    errorMessage += "Business rules:\n";
+                    typeErrors.forEach(err => {
+                        errorMessage += `  • ${err.message}\n`;
+                    });
+                    errorMessage += "\n";
+                    break;
+            }
+        });
+
+        // Show error notification
+        monday.execute("notice", {
+            message: errorMessage,
+            type: "error",
+            timeout: 10000
+        });
+
+        // Also log to console for debugging
+        //console.error("Validation failed:", errors);
+    };
+
+    /**
+     * Get column metadata helper (if not already defined)
+     * This should already exist in your code, but included for completeness
+     */
+    // const getColumnMetadata = (columnId) => {
+    //     return boardColumns.find((col) => col.id === columnId);
+    // };
+
     const handleFormSubmit = async (e) => {
         e.preventDefault();
 
         console.log("Form submitted with data:", formData);
         console.log("Form action:", formAction);
 
+        // ===================================================
+        // STEP 1: VALIDATE FORM DATA
+        // ===================================================
+        const validation = validateForm(formData, validatedSections, formAction);
+
+        if (!validation.isValid) {
+            // Show validation errors to user
+            displayValidationErrors(validation.errors);
+
+            // Scroll to first error field (optional)
+            if (validation.errors.length > 0) {
+                const firstErrorField = validation.errors[0].columnId;
+                const fieldElement = document.querySelector(`[data-column-id="${firstErrorField}"]`);
+                if (fieldElement) {
+                    fieldElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            }
+
+            return; // Stop submission
+        }
+
+        // ===================================================
+        // STEP 2: PROCEED WITH CREATE OR UPDATE
+        // ===================================================
         if (formAction === "create") {
-            await createItem(formData);
+            const result = await createItem(formData);
+
+            if (result.success) {
+                // Optionally refresh the board items list if in update mode
+                // This ensures the new item appears in the dropdown
+                // fetchBoardItemsForUpdate();
+            }
         } else if (formAction === "update" && selectedItemId) {
-            await updateItem(selectedItemId, formData);
+            const result = await updateItem(selectedItemId, formData);
+
+            if (result.success) {
+                // Optionally refresh the item data
+                // handleItemSelection({ target: { value: selectedItemId } });
+            }
         }
     };
 
@@ -1349,7 +1663,7 @@ const App = () => {
                                     <div className="section-content">
                                         <div className="fields-grid">
                                             {validFields.map((field) => (
-                                                <div key={field.id} className="field-wrapper">
+                                                <div key={field.id} className="field-wrapper" data-column-id={field.columnId}>
                                                     <label className="field-label">
                                                         {field.label}
                                                         {field.isDefault === "true" && <span className="required-asterisk">*</span>}
@@ -1500,6 +1814,6 @@ const App = () => {
             )}
         </div>
     );
-};
+};;
 
 export default App;
