@@ -925,6 +925,29 @@ const App = () => {
                     </div>
                 );
             }
+
+            case "email":
+                return (
+                    <input
+                        type="email"
+                        value={value}
+                        onChange={(e) => handleFieldChange(field.columnId, e.target.value)}
+                        placeholder={`Enter ${field.label}`}
+                        style={inputStyle}
+                    />
+                );
+
+            case "phone":
+                return (
+                    <input
+                        type="tel"
+                        value={value}
+                        onChange={(e) => handleFieldChange(field.columnId, e.target.value)}
+                        placeholder={`Enter ${field.label} (e.g. 9885551234)`}
+                        style={inputStyle}
+                    />
+                );
+
             case "board_relation": {
                 const relatedBoardId = getRelatedBoardId(field.columnId);
                 if (!relatedBoardId) {
@@ -1217,7 +1240,28 @@ const App = () => {
                     case "long_text":
                         columnValues[columnId] = String(value);
                         break;
+                    case "email":
+                        // Monday expects: { "email": "user@example.com", "text": "user@example.com" }
+                        // "text" is the display label — use the email address itself
+                        if (String(value).trim() !== "") {
+                            columnValues[columnId] = {
+                                email: String(value).trim(),
+                                text: String(value).trim(),
+                            };
+                        }
+                        break;
 
+                    case "phone":
+                        // Monday expects: { "phone": "9888002909", "countryShortName": "US" }
+                        // Strip spaces/dashes from the phone number string
+                        if (String(value).trim() !== "") {
+                            const cleanPhone = String(value).replace(/[\s\-().+]/g, "");
+                            columnValues[columnId] = {
+                                phone: cleanPhone,
+                                countryShortName: "US", // Default country — adjust if needed
+                            };
+                        }
+                        break;
                     default:
                         columnValues[columnId] = String(value);
                 }
@@ -1356,7 +1400,24 @@ const App = () => {
                     case "long_text":
                         columnValues[columnId] = String(value);
                         break;
+                    case "email":
+                        if (String(value).trim() !== "") {
+                            columnValues[columnId] = {
+                                email: String(value).trim(),
+                                text: String(value).trim(),
+                            };
+                        }
+                        break;
 
+                    case "phone":
+                        if (String(value).trim() !== "") {
+                            const cleanPhone = String(value).replace(/[\s\-().+]/g, "");
+                            columnValues[columnId] = {
+                                phone: cleanPhone,
+                                countryShortName: "US", // Default country — adjust if needed
+                            };
+                        }
+                        break;
                     default:
                         columnValues[columnId] = String(value);
                 }
