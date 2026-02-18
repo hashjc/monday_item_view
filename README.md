@@ -48,8 +48,20 @@ Follow the prompts to select the app and version to connect your deployment to.
 
 ## On local machine
 Run
-npm intsall
-npm start
+
+## Local testing
+1. npm intsall
+2. intialize token wit: mapps init -t <Token> commnad to link to new monday instance.
+
+3. npm start
 
 mapps init -t <Token> commnad to link to new monday instance.
+
+mapps init -t eyJhbGciOiJIUzI1NiJ9.eyJ0aWQiOjYxOTM1MzkzNiwiYWFpIjoxMSwidWlkIjo5OTE5OTk0NiwiaWFkIjoiMjAyNi0wMi0xMFQxMToyNzowNC4wMDBaIiwicGVyIjoibWU6d3JpdGUiLCJhY3RpZCI6MzIzNDE2NTYsInJnbiI6ImFwc2UyIn0.SOarvbRTNyqIAjKmpWL0pT1fNMInqpiWJDy-ZQXiSyg
+
+## Deployment
+1. In your app, go to client side code or server side code.
+There is a command called mapps push use that command to deploy your app: mapps code:push -i 12902178
+2. It will take 90 seconds
+
 
