@@ -192,6 +192,107 @@ const RecordPill = ({ label, onRemove }) => (
     </div>
 );
 
+const FileUpload = ({ columnId, value, onChange, field, isUpdate }) => {
+    // value shape:
+    //   create mode: File[] (browser File objects)
+    //   update mode: { existingFiles: [{name, assetId, url}], newFiles: File[] }
+    const maxFiles = field.maxFiles ? parseInt(field.maxFiles) : null;
+    const fileInputRef = React.useRef(null);
+
+    // Normalise to consistent shape regardless of mode
+    const existingFiles = isUpdate ? value?.existingFiles || [] : [];
+    const newFiles = isUpdate ? value?.newFiles || [] : Array.isArray(value) ? value : [];
+    const totalCount = existingFiles.length + newFiles.length;
+
+    const handleFileAdd = (e) => {
+        const selected = Array.from(e.target.files || []);
+        if (!selected.length) return;
+
+        const remaining = maxFiles ? maxFiles - totalCount : Infinity;
+        if (remaining <= 0) {
+            alert(`Maximum ${maxFiles} file(s) allowed.`);
+            e.target.value = "";
+            return;
+        }
+        const toAdd = selected.slice(0, remaining);
+        if (selected.length > remaining) {
+            alert(`Only ${remaining} more file(s) can be added (max ${maxFiles}).`);
+        }
+
+        if (isUpdate) {
+            onChange(columnId, { existingFiles, newFiles: [...newFiles, ...toAdd] });
+        } else {
+            onChange(columnId, [...newFiles, ...toAdd]);
+        }
+        e.target.value = ""; // reset so same file can be re-selected
+    };
+
+    const removeNewFile = (index) => {
+        const updated = newFiles.filter((_, i) => i !== index);
+        if (isUpdate) {
+            onChange(columnId, { existingFiles, newFiles: updated });
+        } else {
+            onChange(columnId, updated);
+        }
+    };
+
+    const atLimit = maxFiles !== null && totalCount >= maxFiles;
+
+    return (
+        <div className="file-upload-wrapper">
+            {/* Existing files (update mode only) — no delete icon per monday limitation */}
+            {existingFiles.length > 0 && (
+                <div className="file-list existing-files">
+                    <div className="file-list-label">Existing files (cannot be deleted via API):</div>
+                    {existingFiles.map((f, i) => (
+                        <div key={i} className="file-pill existing">
+                            <span className="file-pill-icon">📎</span>
+                            <a href={f.url} target="_blank" rel="noopener noreferrer" className="file-pill-name" title={f.name}>
+                                {f.name}
+                            </a>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {/* New files staged for upload */}
+            {newFiles.length > 0 && (
+                <div className="file-list new-files">
+                    {isUpdate && <div className="file-list-label">New files to upload:</div>}
+                    {newFiles.map((f, i) => (
+                        <div key={i} className="file-pill new">
+                            <span className="file-pill-icon">📄</span>
+                            <span className="file-pill-name" title={f.name}>
+                                {f.name}
+                            </span>
+                            <span className="file-pill-size">({(f.size / 1024).toFixed(1)} KB)</span>
+                            <button type="button" className="file-pill-remove" onClick={() => removeNewFile(i)} title="Remove file">
+                                ×
+                            </button>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {/* Upload button */}
+            {!atLimit && (
+                <button type="button" className="file-upload-btn" onClick={() => fileInputRef.current?.click()}>
+                    <span>📎</span>
+                    <span>{newFiles.length > 0 ? "Add more files" : "Attach files"}</span>
+                    {maxFiles && (
+                        <span className="file-upload-limit">
+                            ({totalCount}/{maxFiles})
+                        </span>
+                    )}
+                </button>
+            )}
+            {atLimit && <div className="file-upload-limit-msg">Maximum {maxFiles} file(s) reached.</div>}
+
+            <input ref={fileInputRef} type="file" multiple style={{ display: "none" }} onChange={handleFileAdd} />
+        </div>
+    );
+};
+
 const App = () => {
     console.log("App start");
     const [context, setContext] = useState();
@@ -423,9 +524,7 @@ const App = () => {
                                 try {
                                     const ids = col.linked_item_ids || [];
                                     const displayVal = col.display_value || "";
-                                    const names = displayVal
-                                        ? displayVal.split(", ").map((n) => n.trim())
-                                        : [];
+                                    const names = displayVal ? displayVal.split(", ").map((n) => n.trim()) : [];
 
                                     itemData[col.id] = ids.map((id, index) => ({
                                         id: id,
@@ -456,6 +555,33 @@ const App = () => {
                             };
                         } catch (e) {
                             itemData[col.id] = { phone: col.text || "", countryShortName: "US" };
+                        }
+                    } else if (col.type === "checkbox") {
+                        itemData[col.id] = col.text === "v" || col.text === "true";
+                    } else if (col.type === "link") {
+                        try {
+                            const parsed = JSON.parse(col.value);
+                            console.log("link value ", parsed);
+                            // Store as object so renderField and formatColumnValue can handle it cleanly
+                            itemData[col.id] = { url: parsed.url || "", text: parsed.text || "" };
+                        } catch (_) {
+                            itemData[col.id] = { url: col.text || "", text: col.text || "" };
+                        }
+                    } else if (col.type === "file") {
+                        // Parse existing files from value JSON; store as array of { name, assetId, url }
+                        try {
+                            const parsed = JSON.parse(col.value);
+                            const urls = (col.text || "").split(", ").map((u) => u.trim());
+                            itemData[col.id] = {
+                                existingFiles: (parsed.files || []).map((f, i) => ({
+                                    name: f.name,
+                                    assetId: f.assetId,
+                                    url: urls[i] || "",
+                                })),
+                                newFiles: [], // File objects the user selects in update mode
+                            };
+                        } catch (_) {
+                            itemData[col.id] = { existingFiles: [], newFiles: [] };
                         }
                     } else {
                         itemData[col.id] = col.text || col.value || "";
@@ -767,132 +893,6 @@ const App = () => {
                     );
                 }
             }
-            /*
-            case "people": {
-                const selectedPeople = Array.isArray(value) ? value : [];
-                const lookup = peopleLookups[field.columnId] || {};
-                const isOpen = lookup.isOpen || false;
-                const selectedUserNames = [];
-                if (selectedPeople.length > 0 && lookup.users) {
-                    selectedPeople.forEach((userId) => {
-                        const found = lookup.users.find((u) => parseInt(u.id) === parseInt(userId));
-                        if (found) selectedUserNames.push(found.name);
-                    });
-                }
-                const displayText = selectedUserNames.length > 0 ? selectedUserNames.join(", ") : `-- Select ${field.label} --`;
-                return (
-                    <div className="relation-lookup-container">
-                        <div
-                            className={`relation-lookup-trigger ${isOpen ? "open" : ""}`}
-                            onClick={() => {
-                                if (!isOpen) loadPeopleLookup(field.columnId);
-                            }}
-                        >
-                            <span className={`relation-lookup-trigger-text ${selectedUserNames.length === 0 ? "placeholder" : ""}`}>{displayText}</span>
-                            {selectedPeople.length > 0 && (
-                                <button
-                                    className="relation-lookup-clear-btn"
-                                    onClick={(e) => clearPeopleSelection(field.columnId, e)}
-                                    title="Clear all"
-                                    type="button"
-                                >
-                                    ×
-                                </button>
-                            )}
-                            <span className="relation-lookup-trigger-icon">{isOpen ? "▲" : "▼"}</span>
-                        </div>
-                        {isOpen && (
-                            <div className="relation-lookup-dropdown">
-                                <div className="relation-lookup-header">
-                                    <input
-                                        type="text"
-                                        className="relation-lookup-search"
-                                        placeholder="Search by name or email..."
-                                        value={lookup.searchTerm || ""}
-                                        onChange={(e) => handlePeopleSearch(field.columnId, e.target.value)}
-                                        autoFocus
-                                    />
-                                    <button
-                                        className="relation-lookup-close-btn"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            closePeopleLookup(field.columnId);
-                                        }}
-                                    >
-                                        Close
-                                    </button>
-                                </div>
-                                <div className="relation-lookup-results">
-                                    {lookup.loading && <div className="relation-lookup-loading">Loading users...</div>}
-                                    {!lookup.loading && lookup.error && <div className="relation-lookup-error">{lookup.error}</div>}
-                                    {!lookup.loading && !lookup.error && lookup.users && lookup.users.length === 0 && (
-                                        <div className="relation-lookup-empty">No users found</div>
-                                    )}
-                                    {!lookup.loading &&
-                                        lookup.users &&
-                                        lookup.users.length > 0 &&
-                                        lookup.users.map((user) => {
-                                            const isSelected = selectedPeople.includes(parseInt(user.id));
-                                            return (
-                                                <div
-                                                    key={user.id}
-                                                    className={`relation-lookup-item people-item ${isSelected ? "selected" : ""}`}
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        togglePeopleSelection(field.columnId, user.id);
-                                                    }}
-                                                >
-                                                    <div style={{ display: "flex", alignItems: "center", width: "100%" }}>
-                                                        <input type="checkbox" checked={isSelected} readOnly style={{ marginRight: "10px" }} />
-                                                        {user.photo_thumb && (
-                                                            <img
-                                                                src={user.photo_thumb}
-                                                                alt={user.name}
-                                                                style={{
-                                                                    width: "24px",
-                                                                    height: "24px",
-                                                                    borderRadius: "50%",
-                                                                    marginRight: "10px",
-                                                                    objectFit: "cover",
-                                                                }}
-                                                            />
-                                                        )}
-                                                        <div style={{ flex: 1 }}>
-                                                            <div className="relation-lookup-item-name">
-                                                                {user.name}
-                                                                {user.is_admin && (
-                                                                    <span
-                                                                        style={{
-                                                                            fontSize: "11px",
-                                                                            padding: "2px 6px",
-                                                                            backgroundColor: "#0073ea",
-                                                                            color: "white",
-                                                                            borderRadius: "3px",
-                                                                            marginLeft: "8px",
-                                                                        }}
-                                                                    >
-                                                                        Admin
-                                                                    </span>
-                                                                )}
-                                                            </div>
-                                                            {user.email && <div className="relation-lookup-item-id">{user.email}</div>}
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            );
-                                        })}
-                                </div>
-                                {lookup.users && lookup.users.length > 0 && (
-                                    <div className="relation-lookup-footer">
-                                        {selectedPeople.length} selected of {lookup.users.length} user(s)
-                                    </div>
-                                )}
-                            </div>
-                        )}
-                    </div>
-                );
-            }
-            */
             case "people":
             case "board_relation": {
                 const selectedItems = Array.isArray(formData[field.columnId]) ? formData[field.columnId] : [];
@@ -981,7 +981,6 @@ const App = () => {
                                                     className={`relation-lookup-item people-item ${isSelected ? "selected" : ""}`}
                                                     onClick={(e) => {
                                                         e.stopPropagation();
-                                                        // For multi-select people, we toggle an object {id, name}
                                                         const newValue = isSelected
                                                             ? selectedItems.filter((i) => parseInt(i.id) !== parseInt(user.id))
                                                             : [...selectedItems, { id: parseInt(user.id), name: user.name }];
@@ -1005,7 +1004,6 @@ const App = () => {
                                                     className={`relation-lookup-item ${isSelected ? "selected" : ""}`}
                                                     onClick={(e) => {
                                                         e.stopPropagation();
-                                                        // For board relation, we usually only allow single or limited select, but treating as multi-pills
                                                         const newValue = isSelected
                                                             ? selectedItems.filter((i) => String(i.id) !== String(item.id))
                                                             : [...selectedItems, { id: item.id, name: item.name }];
@@ -1035,141 +1033,9 @@ const App = () => {
                     />
                 );
 
-            // =====================================================
-            // PHONE: Uses the PhoneInput component with country picker
-            // =====================================================
+            // PHONE:
             case "phone":
                 return <PhoneInput columnId={field.columnId} value={value} onChange={handleFieldChange} label={field.label} />;
-            /*
-            case "board_relation": {
-                const relatedBoardIds = getRelatedBoardIds(field.columnId);
-                if (relatedBoardIds.length === 0) return <div style={{ fontSize: "13px", color: "#999" }}>Board relation not configured</div>;
-                const lookup = relationLookups[field.columnId] || {};
-                const isOpen = lookup.isOpen || false;
-                const selectedItemId = value;
-                let selectedItemName = "";
-                if (selectedItemId && lookup.items) {
-                    const found = lookup.items.find((item) => String(item.id) === String(selectedItemId));
-                    // Show "Item Name (Board Name)" when multiple boards are linked
-                    selectedItemName = found ? (lookup.isMultiBoard ? `${found.name} (${found.boardName})` : found.name) : `Item ${selectedItemId}`;
-                }
-                // Footer label: one board name or count
-                const footerLabel = lookup.isMultiBoard
-                    ? `${Object.keys(lookup.boardNames || {}).length} boards`
-                    : Object.values(lookup.boardNames || {})[0] || "";
-
-                return (
-                    <div className="relation-lookup-container">
-                        <div
-                            className={`relation-lookup-trigger ${isOpen ? "open" : ""}`}
-                            onClick={() => {
-                                if (!isOpen) loadRelationLookup(field.columnId, relatedBoardIds);
-                            }}
-                        >
-                            <span className={`relation-lookup-trigger-text ${!selectedItemName ? "placeholder" : ""}`}>
-                                {selectedItemName || `-- Select ${field.label} --`}
-                            </span>
-                            {selectedItemId && (
-                                <button
-                                    className="relation-lookup-clear-btn"
-                                    onClick={(e) => clearRelationSelection(field.columnId, e)}
-                                    title="Clear"
-                                    type="button"
-                                >
-                                    ×
-                                </button>
-                            )}
-                            <span className="relation-lookup-trigger-icon">{isOpen ? "▲" : "▼"}</span>
-                        </div>
-                        {isOpen && (
-                            <div className="relation-lookup-dropdown">
-                                <div className="relation-lookup-header">
-                                    <input
-                                        type="text"
-                                        className="relation-lookup-search"
-                                        placeholder="Search by name..."
-                                        value={lookup.searchTerm || ""}
-                                        onChange={(e) => handleRelationSearch(field.columnId, relatedBoardIds, e.target.value)}
-                                        autoFocus
-                                    />
-                                    <button
-                                        className="relation-lookup-close-btn"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            closeRelationLookup(field.columnId);
-                                        }}
-                                    >
-                                        Close
-                                    </button>
-                                </div>
-                                <div className="relation-lookup-results">
-                                    {lookup.loading && <div className="relation-lookup-loading">Loading...</div>}
-                                    {!lookup.loading && lookup.error && !lookup.items?.length && <div className="relation-lookup-error">{lookup.error}</div>}
-                                    {!lookup.loading && !lookup.error && lookup.items && lookup.items.length === 0 && (
-                                        <div className="relation-lookup-empty">No items found</div>
-                                    )}
-                                    {!lookup.loading &&
-                                        lookup.items &&
-                                        lookup.items.length > 0 &&
-                                        (() => {
-                                            // Group by board when multi-board
-                                            if (!lookup.isMultiBoard) {
-                                                return lookup.items.map((item) => (
-                                                    <div
-                                                        key={item.id}
-                                                        className={`relation-lookup-item ${String(selectedItemId) === String(item.id) ? "selected" : ""}`}
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            selectRelationItem(field.columnId, item.id, item.name);
-                                                        }}
-                                                    >
-                                                        <div className="relation-lookup-item-name">{item.name}</div>
-                                                        <div className="relation-lookup-item-id">ID: {item.id}</div>
-                                                    </div>
-                                                ));
-                                            }
-
-                                            // Multi-board: group items under board headers
-                                            const grouped = {};
-                                            lookup.items.forEach((item) => {
-                                                const key = item.boardId;
-                                                if (!grouped[key]) grouped[key] = { boardName: item.boardName, items: [] };
-                                                grouped[key].items.push(item);
-                                            });
-
-                                            return Object.entries(grouped).map(([boardId, group]) => (
-                                                <div key={boardId}>
-                                                    <div className="relation-lookup-board-header">{group.boardName}</div>
-                                                    {group.items.map((item) => (
-                                                        <div
-                                                            key={item.id}
-                                                            className={`relation-lookup-item ${String(selectedItemId) === String(item.id) ? "selected" : ""}`}
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                selectRelationItem(field.columnId, item.id, item.name);
-                                                            }}
-                                                        >
-                                                            <div className="relation-lookup-item-name">{item.name}</div>
-                                                            <div className="relation-lookup-item-id">ID: {item.id}</div>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            ));
-                                        })()}
-                                </div>
-                                {lookup.items && lookup.items.length > 0 && (
-                                    <div className="relation-lookup-footer">
-                                        {lookup.items.length} item(s) from {footerLabel}
-                                        {lookup.partialError && <span style={{ color: "#e57373", marginLeft: "8px" }}>⚠ Some boards unavailable</span>}
-                                    </div>
-                                )}
-                            </div>
-                        )}
-                    </div>
-                );
-            }
-            */
-
             case "name":
             case "text":
                 return (
@@ -1227,6 +1093,33 @@ const App = () => {
                         style={{ ...inputStyle, backgroundColor: "#f5f5f5", cursor: "not-allowed" }}
                     />
                 );
+            case "link": {
+                const linkVal = typeof value === "object" && value !== null ? value : { url: value || "", text: value || "" };
+                return (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                        <input
+                            type="url"
+                            value={linkVal.url}
+                            onChange={(e) => handleFieldChange(field.columnId, { ...linkVal, url: e.target.value })}
+                            placeholder="https://example.com"
+                            style={inputStyle}
+                        />
+                        <input
+                            type="text"
+                            value={linkVal.text}
+                            onChange={(e) => handleFieldChange(field.columnId, { ...linkVal, text: e.target.value })}
+                            placeholder="Link label (optional)"
+                            style={{ ...inputStyle, fontSize: "12px" }}
+                        />
+                    </div>
+                );
+            }
+
+            case "file": {
+                const fileValue = formData[field.columnId];
+                const isUpdate = formAction === "update";
+                return <FileUpload columnId={field.columnId} value={fileValue} onChange={handleFieldChange} field={field} isUpdate={isUpdate} />;
+            }
             case "doc":
                 return (
                     <input
@@ -1264,18 +1157,6 @@ const App = () => {
                 const validIds = ids.filter((id) => id !== "" && id !== null).map((id) => parseInt(id));
                 return validIds.length > 0 ? { ids: validIds } : null;
             }
-            /*
-            case "people": {
-                const peopleIds = Array.isArray(value) ? value : [value];
-                const validPeopleIds = peopleIds.filter((id) => id !== "" && id !== null);
-                return validPeopleIds.length > 0 ? { personsAndTeams: validPeopleIds.map((id) => ({ id: parseInt(id), kind: "person" })) } : null;
-            }
-            case "board_relation": {
-                const relationIds = Array.isArray(value) ? value : [value];
-                const validRelationIds = relationIds.filter((id) => id !== "" && id !== null);
-                return validRelationIds.length > 0 ? { item_ids: validRelationIds.map((id) => parseInt(id)) } : null;
-            }
-            */
             case "people": {
                 const people = Array.isArray(value) ? value : [];
                 const validIds = people.map((p) => (typeof p === "object" ? p.id : p)).filter((id) => !!id);
@@ -1286,8 +1167,6 @@ const App = () => {
                 const validIds = relations.map((r) => (typeof r === "object" ? r.id : r)).filter((id) => !!id);
                 return validIds.length > 0 ? { item_ids: validIds.map((id) => parseInt(id)) } : null;
             }
-            case "checkbox":
-                return { checked: value ? "true" : "false" };
             case "date":
                 return String(value).trim() !== "" ? { date: value } : null;
             case "numbers":
@@ -1304,9 +1183,63 @@ const App = () => {
                 const cleanPhone = String(phoneObj.phone).replace(/[\s\-().]/g, "");
                 return { phone: cleanPhone, countryShortName: phoneObj.countryShortName || "US" };
             }
+            case "link": {
+                const linkObj = typeof value === "object" && value !== null ? value : { url: String(value).trim(), text: String(value).trim() };
+                const url = (linkObj.url || "").trim();
+                if (!url) return null;
+                const fullUrl = /^https?:\/\//i.test(url) ? url : `https://${url}`;
+                return { url: fullUrl, text: linkObj.text || fullUrl };
+            }
+
+            case "checkbox":
+                return { checked: value === true || value === "true" || value === "v" ? "true" : "false" };
+
             default:
                 return String(value);
         }
+    };
+
+    const uploadPendingFiles = async (itemId, recordValues, isUpdate = false) => {
+        const results = [];
+        for (const columnId of Object.keys(recordValues)) {
+            if (columnId === "name") continue;
+            const columnMeta = getColumnMetadata(columnId);
+            if (!columnMeta || columnMeta.type !== "file") continue;
+
+            const fileValue = recordValues[columnId];
+            // In create mode: fileValue is File[]
+            // In update mode: fileValue is { existingFiles: [...], newFiles: File[] }
+            const filesToUpload = isUpdate ? fileValue?.newFiles || [] : Array.isArray(fileValue) ? fileValue : [];
+
+            for (const file of filesToUpload) {
+                try {
+                    // monday.com add_file_to_column requires multipart — use the SDK's file upload
+                    const mutation = `
+                        mutation ($itemId: ID!, $columnId: String!, $file: File!) {
+                            add_file_to_column(item_id: $itemId, column_id: $columnId, file: $file) {
+                                id
+                            }
+                        }
+                    `;
+                    const response = await monday.api(mutation, {
+                        variables: {
+                            itemId: String(itemId),
+                            columnId,
+                            file,
+                        },
+                    });
+                    if (response.data?.add_file_to_column?.id) {
+                        results.push({ success: true, file: file.name });
+                    } else {
+                        results.push({ success: false, file: file.name, error: "Upload returned no ID" });
+                    }
+                } catch (err) {
+                    console.error(`File upload failed for ${file.name}:`, err);
+                    results.push({ success: false, file: file.name, error: err.message });
+                }
+            }
+        }
+        return results;
     };
 
     const createItem = async (recordValues) => {
@@ -1315,9 +1248,12 @@ const App = () => {
             const columnValues = {};
             Object.keys(recordValues).forEach((columnId) => {
                 if (columnId === "name") return;
+
                 const value = recordValues[columnId];
                 const columnMeta = getColumnMetadata(columnId);
                 if (!columnMeta) return;
+                if (columnMeta && columnMeta.type === "file") return; // handled separately via uploadPendingFiles
+
                 const isEmpty =
                     value === "" || value === null || value === undefined || (typeof value === "object" && !Array.isArray(value) && value.phone === "");
                 if (isEmpty) return;
@@ -1332,9 +1268,27 @@ const App = () => {
             const response = await monday.api(mutation, { variables });
 
             if (response.data && response.data.create_item) {
-                monday.execute("notice", { message: `Item "${response.data.create_item.name}" created successfully!`, type: "success", timeout: 5000 });
+                const createdItem = response.data.create_item;
+
+                // Phase 2: upload any staged files to their respective file columns
+                const fileUploadResults = await uploadPendingFiles(createdItem.id, recordValues);
+                const fileErrors = fileUploadResults.filter((r) => !r.success);
+
+                if (fileErrors.length === 0) {
+                    monday.execute("notice", {
+                        message: `Item "${createdItem.name}" created successfully!`,
+                        type: "success",
+                        timeout: 5000,
+                    });
+                } else {
+                    monday.execute("notice", {
+                        message: `Item "${createdItem.name}" created, but ${fileErrors.length} file upload(s) failed.`,
+                        type: "error",
+                        timeout: 7000,
+                    });
+                }
                 setFormData({});
-                return { success: true, item: response.data.create_item };
+                return { success: true, item: createdItem };
             } else {
                 throw new Error("Failed to create item");
             }
@@ -1353,6 +1307,8 @@ const App = () => {
                 const value = recordValues[columnId];
                 const columnMeta = getColumnMetadata(columnId);
                 if (!columnMeta) return;
+                if (columnMeta && columnMeta.type === "file") return; // handled separately via uploadPendingFiles
+
                 const isEmpty =
                     value === "" || value === null || value === undefined || (typeof value === "object" && !Array.isArray(value) && value.phone === "");
                 if (isEmpty) return;
@@ -1367,8 +1323,22 @@ const App = () => {
             const response = await monday.api(mutation, { variables });
 
             if (response.data && response.data.change_multiple_column_values) {
-                monday.execute("notice", { message: `Item updated successfully!`, type: "success", timeout: 5000 });
-                return { success: true, item: response.data.change_multiple_column_values };
+                const updatedItem = response.data.change_multiple_column_values;
+
+                // Upload any new files the user added in update mode
+                const fileUploadResults = await uploadPendingFiles(itemId, recordValues, true /* isUpdate */);
+                const fileErrors = fileUploadResults.filter((r) => !r.success);
+
+                if (fileErrors.length === 0) {
+                    monday.execute("notice", { message: `Item updated successfully!`, type: "success", timeout: 5000 });
+                } else {
+                    monday.execute("notice", {
+                        message: `Item updated, but ${fileErrors.length} file upload(s) failed.`,
+                        type: "error",
+                        timeout: 7000,
+                    });
+                }
+                return { success: true, item: updatedItem };
             } else {
                 throw new Error("Failed to update item");
             }
