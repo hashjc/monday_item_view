@@ -314,6 +314,9 @@ const App = () => {
     const [relationLookups, setRelationLookups] = useState({});
     const searchTimers = useRef({});
 
+    const [submitting, setSubmitting] = useState(false);
+    const [submitStatus, setSubmitStatus] = useState(null); // { phase: string, error: boolean }
+
     const [mainItemLookup, setMainItemLookup] = useState({
         items: [],
         loading: false,
@@ -505,7 +508,7 @@ const App = () => {
             console.log("Item rtrived full record ", result);
             if (result.success) {
                 console.log("Result ", result);
-                //setSelectedItem(result.item);
+                setSelectedItem(result.item);
                 const itemData = {};
                 itemData["name"] = result.item.name;
                 result.item.column_values.forEach((col) => {
@@ -706,11 +709,12 @@ const App = () => {
     const closeRelationLookup = (columnId) => {
         setRelationLookups((prev) => ({ ...prev, [columnId]: { ...prev[columnId], isOpen: false, searchTerm: "" } }));
     };
-
+    /*
     const selectRelationItem = (columnId, itemId, itemName) => {
         handleFieldChange(columnId, itemId);
         setRelationLookups((prev) => ({ ...prev, [columnId]: { ...prev[columnId], isOpen: false } }));
     };
+    */
 
     const loadPeopleLookup = async (columnId) => {
         // Only close OTHER open dropdowns — do NOT wipe their items/users cache.
@@ -771,7 +775,7 @@ const App = () => {
     const closePeopleLookup = (columnId) => {
         setPeopleLookups((prev) => ({ ...prev, [columnId]: { ...prev[columnId], isOpen: false, searchTerm: "" } }));
     };
-
+    /*
     const togglePeopleSelection = (columnId, userId) => {
         const currentValue = formData[columnId] || [];
         const userIdNum = parseInt(userId);
@@ -788,6 +792,7 @@ const App = () => {
         e.stopPropagation();
         handleFieldChange(columnId, []);
     };
+    */
 
     const toggleSection = (sectionId) => {
         setCollapsedSections((prev) => ({ ...prev, [sectionId]: !prev[sectionId] }));
@@ -1200,6 +1205,7 @@ const App = () => {
     };
 
     const uploadPendingFiles = async (itemId, recordValues, isUpdate = false) => {
+        console.log("Upload pending files");
         const results = [];
         for (const columnId of Object.keys(recordValues)) {
             if (columnId === "name") continue;
@@ -1207,8 +1213,6 @@ const App = () => {
             if (!columnMeta || columnMeta.type !== "file") continue;
 
             const fileValue = recordValues[columnId];
-            // In create mode: fileValue is File[]
-            // In update mode: fileValue is { existingFiles: [...], newFiles: File[] }
             const filesToUpload = isUpdate ? fileValue?.newFiles || [] : Array.isArray(fileValue) ? fileValue : [];
 
             for (const file of filesToUpload) {
@@ -1425,7 +1429,9 @@ const App = () => {
     };
 
     const loadForm = () => {
+        console.log("VAlidated sections ", validatedSections);
         const validSections = validatedSections.filter((section) => section.isFullyValid && section.sectionData && section.sectionData.fields);
+        console.log("VAlidated sections ", validSections);
         if (validSections.length === 0) {
             return (
                 <div className="error-box">
@@ -1467,7 +1473,7 @@ const App = () => {
                                                 <div key={field.id} className="field-wrapper" data-column-id={field.columnId}>
                                                     <label className="field-label">
                                                         {field.label}
-                                                        {field.isDefault === "true" && <span className="required-asterisk">*</span>}
+                                                        {field.isRequired === "true" && <span className="required-asterisk">*</span>}
                                                     </label>
                                                     {renderField(field)}
                                                     <div className="field-type-hint">Type: {field.type}</div>

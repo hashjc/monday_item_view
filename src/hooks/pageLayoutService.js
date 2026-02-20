@@ -8,6 +8,7 @@ const PAGELAYOUTSECTIONS_BOARD_ID = METADATA_BOARD_ID_FROM_FILE;
 const PAGELAYOUT_COL_TITLE_BOARDID = "Board Id";
 const PAGELAYOUT_COL_TITLE_SECTIONORDER = "Section Order";
 const PAGELAYOUT_COL_TITLE_SECTIONS = "Sections";
+const PAGELAYOUT_COL_TITLE_FIELDS_JSON = "Fields";
 const LIMIT = 500;
 
 /**
@@ -51,7 +52,7 @@ async function checkPageLayoutColumnValidity(pageLayoutSectionRecords, boardId) 
         if (!boardColumnsResult?.success || !boardColumnsResult?.columns || !Array.isArray(boardColumnsResult.columns)) {
             return {
                 success: false,
-                error: "Could not fetch board column metadata",
+                error: "Could not fetch target board column metadata. Target Board Id: ", boardId,
                 validatedSections: [],
             };
         }
@@ -260,7 +261,7 @@ export async function retrievePageLayoutInfoForBoard(boardId) {
                 validationError: validationResult.error,
             };
         }
-
+        console.log("Page Layout Section records", pageLayoutSectionRecords);
         // Step 4: Return both raw items and validated sections
         return {
             success: true,
