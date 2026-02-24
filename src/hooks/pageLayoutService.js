@@ -60,11 +60,7 @@ async function checkPageLayoutColumnValidity(pageLayoutSectionRecords, boardId) 
         const boardColumns = boardColumnsResult.columns;
         console.log("PageLayoutService : Board columns ", boardColumns);
 
-        // --- NEW LOGIC: Create a Map for quick title/label lookup by column ID ---
-        const boardColumnMetadataMap = new Map(
-            boardColumns.map((col) => [col.id, col.title])
-        );
-
+        const boardColumnMetadataMap = new Map(boardColumns.map((col) => [col.id, col.title]));
         const validColumnIds = new Set(boardColumns.map((col) => col.id));
         const columnIdUsageMap = {};
         const validatedSections = [];
@@ -72,37 +68,34 @@ async function checkPageLayoutColumnValidity(pageLayoutSectionRecords, boardId) 
         // Step 3: Parse and validate each section record
         for (const record of pageLayoutSectionRecords) {
             try {
-                const sectionsColumn = record.column_values.find((cv) => cv.column && cv.column.title === PAGELAYOUT_COL_TITLE_SECTIONS);
-
-                if (!sectionsColumn || !sectionsColumn.text) continue;
-
-                let sectionData;
-                try {
-                    sectionData = JSON.parse(sectionsColumn.text);
-                } catch (parseError) {
+                console.log("Record id ", record.id);
+                const sectionsColumn = record.column_values.find((cv) => cv.column && cv.column.title === PAGELAYOUT_COL_TITLE_FIELDS_JSON);
+                const fieldsInfoJsonObj = JSON.parse(JSON.stringify(sectionsColumn.text));
+                console.log("Record id json obj00 ", fieldsInfoJsonObj);
+                console.log("Record id json obj typeof ", typeof fieldsInfoJsonObj);
+                console.log("Record id json obj fields ", fieldsInfoJsonObj?.fields);
+                if (!sectionsColumn) {
                     validatedSections.push({
                         recordId: record.id,
                         recordName: record.name,
-                        error: "Invalid JSON format",
+                        error: "Fields JSON column not found in record",
                         isValid: false,
-                        originalData: record,
                     });
                     continue;
                 }
 
-                if (!sectionData.id || !sectionData.title || !Array.isArray(sectionData.fields)) {
-                    validatedSections.push({
-                        recordId: record.id,
-                        recordName: record.name,
-                        error: "Invalid section structure",
-                        isValid: false,
-                        originalData: record,
-                    });
-                    continue;
-                }
+                //console.log("fields json cv object", sectionsColumn);
+                const fieldsInfoJsonStr = JSON.parse(fieldsInfoJsonObj);
+                const fieldsInfoJsonParsed = fieldsInfoJsonStr?.fields ?? [];
+                //console.log("fields json str (cv.text) ", fieldsInfoJsonStr);
+                console.log("fields json val (cv.value)1 ", fieldsInfoJsonStr);
+                console.log("fields json val (cv.value)1  type ", typeof fieldsInfoJsonStr);
+                console.log("fields json val (cv.value)", fieldsInfoJsonParsed);
 
-                // Track column usage
-                sectionData.fields.forEach((field) => {
+
+
+                // Track column usage across all sections (for duplicate detection)
+                fieldsInfoJsonParsed.forEach((field) => {
                     if (field.columnId) {
                         columnIdUsageMap[field.columnId] = (columnIdUsageMap[field.columnId] || 0) + 1;
                     }
@@ -111,8 +104,8 @@ async function checkPageLayoutColumnValidity(pageLayoutSectionRecords, boardId) 
                 validatedSections.push({
                     recordId: record.id,
                     recordName: record.name,
-                    sectionData: sectionData,
-                    originalData: record,
+                    fields: fieldsInfoJsonParsed, // validated + enriched in Step 4
+                    sectionData: fieldsInfoJsonParsed, // raw array (kept for compatibility)
                     isValid: true,
                 });
             } catch (error) {
@@ -121,26 +114,21 @@ async function checkPageLayoutColumnValidity(pageLayoutSectionRecords, boardId) 
                     recordName: record.name,
                     error: error.message,
                     isValid: false,
-                    originalData: record,
                 });
             }
         }
 
-        // Step 4: Validate each field's columnId, mark duplicates, and APPLY DEFAULT LABELS
+        // Step 4: Validate each field's columnId, mark duplicates, apply default labels
         for (const section of validatedSections) {
-            if (!section.sectionData || !section.sectionData.fields) continue;
+            if (!section.fields) continue;
 
-            section.sectionData.fields = section.sectionData.fields.map((field) => {
+            section.fields = section.fields.map((field) => {
                 const columnId = field.columnId;
-                let currentLabel = field.label;
 
-                // --- NEW LOGIC: Apply default column label if label is blank ---
+                // Apply board column title as label if label is blank (new JSON schema removed labels)
+                let currentLabel = field.label;
                 if (!currentLabel || currentLabel.trim() === "") {
-                    // Lookup the original title from board metadata using the columnId
-                    const defaultTitle = boardColumnMetadataMap.get(columnId);
-                    if (defaultTitle) {
-                        currentLabel = defaultTitle;
-                    }
+                    currentLabel = boardColumnMetadataMap.get(columnId) || columnId;
                 }
 
                 const isValidColumnId = validColumnIds.has(columnId);
@@ -148,25 +136,35 @@ async function checkPageLayoutColumnValidity(pageLayoutSectionRecords, boardId) 
 
                 return {
                     ...field,
-                    label: currentLabel, // Use the potentially updated label
+                    label: currentLabel,
                     isValid: isValidColumnId,
                     duplicate: isDuplicate,
                     validationError: !isValidColumnId ? `Column '${columnId}' does not exist in board` : null,
                 };
             });
 
-            const hasInvalidFields = section.sectionData.fields.some((f) => !f.isValid);
-            const hasDuplicateFields = section.sectionData.fields.some((f) => f.duplicate);
+            // BUG FIX: was section.sectionData.fields — sectionData IS the array, has no .fields property
+            // Correct reference is section.fields (the mapped array above)
+            const hasInvalidFields = section.fields.some((f) => !f.isValid);
+            const hasDuplicateFields = section.fields.some((f) => f.duplicate);
 
             section.hasInvalidFields = hasInvalidFields;
             section.hasDuplicateFields = hasDuplicateFields;
             section.isFullyValid = !hasInvalidFields && !hasDuplicateFields;
         }
 
+        console.log("Page Layout Section records validated sections", {
+            validatedSections,
+            validationSummary: {
+                totalSections: validatedSections.length,
+                fullyValidSections: validatedSections.filter((s) => s.isFullyValid).length,
+            },
+        });
+
         return {
             success: true,
             error: null,
-            validatedSections: validatedSections,
+            validatedSections,
             validationSummary: {
                 totalSections: validatedSections.length,
                 fullyValidSections: validatedSections.filter((s) => s.isFullyValid).length,
@@ -180,8 +178,6 @@ async function checkPageLayoutColumnValidity(pageLayoutSectionRecords, boardId) 
         };
     }
 }
-
-
 
 /**
  * Retrieve page layout information for a specific board using server-side filtering
@@ -249,7 +245,7 @@ export async function retrievePageLayoutInfoForBoard(boardId) {
         }
 
         const pageLayoutSectionRecords = response?.data?.boards?.[0]?.items_page?.items || [];
-
+        console.log("Page Layout Section records", pageLayoutSectionRecords);
         // Step 3: Apply validations
         const validationResult = await checkPageLayoutColumnValidity(pageLayoutSectionRecords, boardId);
         if (!validationResult.success) {
@@ -261,7 +257,7 @@ export async function retrievePageLayoutInfoForBoard(boardId) {
                 validationError: validationResult.error,
             };
         }
-        console.log("Page Layout Section records", pageLayoutSectionRecords);
+        console.log("Page Layout Section records validated sections ", validationResult);
         // Step 4: Return both raw items and validated sections
         return {
             success: true,

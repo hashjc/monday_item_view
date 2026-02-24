@@ -297,6 +297,7 @@ const App = () => {
     console.log("App start");
     const [context, setContext] = useState();
     const [boardId, setBoardId] = useState(null);
+    const [itemId, setItemId] = useState(null);
     const [selectedBoardName, setSelectedBoardName] = useState("");
     const [formAction, setFormAction] = useState("create");
 
@@ -323,6 +324,12 @@ const App = () => {
         searchTerm: "",
         isOpen: false,
     });
+    //   ← MOVE HOOKS HERE, before any useEffect that references them
+    const { boards: boardsFromHook } = useBoards();
+    const boards = boardsFromHook || [];
+    const { items, validatedSections, validationSummary, loading, error } = usePageLayoutInfo(boardId);
+    const pageLayoutLoading = loading;
+    const pageLayoutError = error;
 
     useEffect(() => {
         monday.execute("valueCreatedForUser");
@@ -338,6 +345,11 @@ const App = () => {
                         const nameFromContext = (res.data.board && res.data.board.name) || (res.data.selectedBoard && res.data.selectedBoard.name) || null;
                         if (nameFromContext) setSelectedBoardName(nameFromContext);
                     }
+                    // Item view detection
+                    const detectedItemId = res.data.itemId || null;
+                    if (detectedItemId) {
+                        setItemId(String(detectedItemId));
+                    }
                 }
             })
             .catch((err) => console.error("Failed to get monday context:", err));
@@ -352,6 +364,10 @@ const App = () => {
                     const updatedName = (res.data.board && res.data.board.name) || (res.data.selectedBoard && res.data.selectedBoard.name) || null;
                     if (updatedName) setSelectedBoardName(updatedName);
                 }
+                const updatedItemId = res.data.itemId || null;
+                if (updatedItemId) {
+                    setItemId(String(updatedItemId));
+                }
             }
         });
     }, []);
@@ -365,6 +381,19 @@ const App = () => {
             }
         });
     }, [boardId]);
+
+    useEffect(() => {
+        // Item view: once we have both the item id and a valid layout loaded,
+        // auto-select the item and load its data into the form.
+        if (!itemId) return;
+        if (!validatedSections || validatedSections.length === 0) return;
+        if (pageLayoutLoading) return;
+
+        console.log("[ItemView] Auto-loading item:", itemId);
+        setFormAction("update");
+        handleItemSelection({ target: { value: itemId } });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [itemId, validatedSections, pageLayoutLoading]);
 
     // Close lookups on outside click
     useEffect(() => {
@@ -389,15 +418,6 @@ const App = () => {
     }, []);
 
     useEffect(() => {
-        /*
-        const handleScroll = () => {
-            setRelationLookups((prev) => {
-                const newState = { ...prev };
-                Object.keys(newState).forEach((key) => (newState[key].isOpen = false));
-                return newState;
-            });
-        };
-        */
         const handleScroll = (event) => {
             if (!event.target || event.target.nodeType !== 1) {
                 return;
@@ -429,13 +449,6 @@ const App = () => {
         window.addEventListener("scroll", handleScroll, true);
         return () => window.removeEventListener("scroll", handleScroll, true);
     }, []);
-
-    const { boards: boardsFromHook } = useBoards();
-    const boards = boardsFromHook || [];
-
-    const { items, validatedSections, validationSummary, loading, error } = usePageLayoutInfo(boardId);
-    const pageLayoutLoading = loading;
-    const pageLayoutError = error;
 
     const fetchBoardItemsForUpdate = async () => {
         if (!boardId) return;
@@ -1430,7 +1443,7 @@ const App = () => {
 
     const loadForm = () => {
         console.log("VAlidated sections ", validatedSections);
-        const validSections = validatedSections.filter((section) => section.isFullyValid && section.sectionData && section.sectionData.fields);
+        const validSections = validatedSections.filter((section) => section.isFullyValid && section.fields);
         console.log("VAlidated sections ", validSections);
         if (validSections.length === 0) {
             return (
@@ -1442,7 +1455,7 @@ const App = () => {
         }
         return (
             <div className="form-container">
-                {formAction === "update" && selectedItem && (
+                {formAction === "update" && selectedItem && !isItemViewMode && (
                     <div className="editing-banner">
                         <p>
                             ✏️ Editing: <strong>{selectedItem.name}</strong> (ID: {selectedItem.id})
@@ -1451,15 +1464,15 @@ const App = () => {
                 )}
                 <form onSubmit={handleFormSubmit}>
                     {validSections.map((section) => {
-                        const sectionId = section.sectionData.id;
+                        const sectionId = section.id;
                         const isCollapsed = collapsedSections[sectionId] || false;
-                        const validFields = section.sectionData.fields.filter((f) => f.isValid === true && f.duplicate === false);
+                        const validFields = section.fields.filter((f) => f.isValid === true && f.duplicate === false);
                         if (validFields.length === 0) return null;
                         return (
                             <div key={sectionId} className="section-container">
                                 <div className="section-header" onClick={() => toggleSection(sectionId)}>
                                     <h3>
-                                        {section.sectionData.title}
+                                        {section.recordName}
                                         <span className="field-count">
                                             ({validFields.length} field{validFields.length !== 1 ? "s" : ""})
                                         </span>
@@ -1497,7 +1510,7 @@ const App = () => {
             </div>
         );
     };
-
+    const isItemViewMode = Boolean(itemId);
     return (
         <div className="App">
             {!boardId ? (
@@ -1549,7 +1562,149 @@ const App = () => {
                     )}
                     {!pageLayoutLoading && !pageLayoutError && validatedSections.length > 0 && (
                         <div>
+                            <div>
+                                {/* ── ITEM VIEW: no action selector, no record picker ── */}
+                                {isItemViewMode && (
+                                    <div>
+                                        {/* Loading state while item data is being fetched */}
+                                        {!selectedItem && (
+                                            <div className="loading-state">
+                                                <p>Loading item...</p>
+                                            </div>
+                                        )}
+                                        {/* Once item is loaded, render the form directly */}
+                                        {selectedItem && loadForm()}
+                                    </div>
+                                )}
+
+                                {/* ── BOARD VIEW: existing create / update flow ── */}
+                                {!isItemViewMode && (
+                                    <div>
+                                        <div className="action-selector">
+                                            <h3>Select Action:</h3>
+                                            <div className="radio-group">
+                                                <label className="radio-label">
+                                                    <input
+                                                        type="radio"
+                                                        name="formAction"
+                                                        value="create"
+                                                        checked={formAction === "create"}
+                                                        onChange={handleFormActionChange}
+                                                    />
+                                                    <span>Create New Record</span>
+                                                </label>
+                                                <label className="radio-label">
+                                                    <input
+                                                        type="radio"
+                                                        name="formAction"
+                                                        value="update"
+                                                        checked={formAction === "update"}
+                                                        onChange={handleFormActionChange}
+                                                    />
+                                                    <span>Update Existing Record</span>
+                                                </label>
+                                            </div>
+                                        </div>
+
+                                        {formAction === "update" && (
+                                            <div className="item-selector">
+                                                <h3>Select Item to Update:</h3>
+                                                <div className="relation-lookup-container" style={{ maxWidth: "500px" }}>
+                                                    {/* Lookup Trigger */}
+                                                    <div
+                                                        className={`relation-lookup-trigger ${mainItemLookup.isOpen ? "open" : ""}`}
+                                                        onClick={() => {
+                                                            if (!mainItemLookup.isOpen) handleMainItemLookupSearch("");
+                                                        }}
+                                                    >
+                                                        <span className={`relation-lookup-trigger-text ${!selectedItem ? "placeholder" : ""}`}>
+                                                            {selectedItem ? selectedItem.name : "-- Search for a record --"}
+                                                        </span>
+
+                                                        {selectedItemId && (
+                                                            <button
+                                                                className="relation-lookup-clear-btn"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    setSelectedItemId("");
+                                                                    setSelectedItem(null);
+                                                                    setFormData({});
+                                                                }}
+                                                                title="Clear selection"
+                                                                type="button"
+                                                            >
+                                                                ×
+                                                            </button>
+                                                        )}
+                                                        <span className="relation-lookup-trigger-icon">{mainItemLookup.isOpen ? "▲" : "▼"}</span>
+                                                    </div>
+
+                                                    {/* Dropdown Panel */}
+                                                    {mainItemLookup.isOpen && (
+                                                        <div className="relation-lookup-dropdown">
+                                                            <div className="relation-lookup-header">
+                                                                <input
+                                                                    type="text"
+                                                                    className="relation-lookup-search"
+                                                                    placeholder="Type to search items..."
+                                                                    value={mainItemLookup.searchTerm || ""}
+                                                                    onChange={(e) => handleMainItemLookupSearch(e.target.value)}
+                                                                    autoFocus
+                                                                />
+                                                                <button
+                                                                    className="relation-lookup-close-btn"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        setMainItemLookup((prev) => ({ ...prev, isOpen: false }));
+                                                                    }}
+                                                                >
+                                                                    Close
+                                                                </button>
+                                                            </div>
+
+                                                            <div className="relation-lookup-results main-item-lookup-results">
+                                                                {mainItemLookup.loading && <div className="relation-lookup-loading">Searching board...</div>}
+
+                                                                {!mainItemLookup.loading && mainItemLookup.items && mainItemLookup.items.length === 0 && (
+                                                                    <div className="relation-lookup-empty">No records match your search</div>
+                                                                )}
+
+                                                                {!mainItemLookup.loading &&
+                                                                    mainItemLookup.items &&
+                                                                    mainItemLookup.items.length > 0 &&
+                                                                    mainItemLookup.items.map((item) => (
+                                                                        <div
+                                                                            key={item.id}
+                                                                            className={`relation-lookup-item ${String(selectedItemId) === String(item.id) ? "selected" : ""}`}
+                                                                            onClick={() => selectUpdateItem(item)}
+                                                                        >
+                                                                            <div className="relation-lookup-item-name">{item.name}</div>
+                                                                            <div className="relation-lookup-item-id">ID: {item.id}</div>
+                                                                        </div>
+                                                                    ))}
+                                                            </div>
+
+                                                            <div className="relation-lookup-footer">
+                                                                {mainItemLookup.items?.length || 0} records found in {selectedBoardName}
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                {itemsError && (
+                                                    <div className="error-inline">
+                                                        <p>{itemsError}</p>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+
+                                        {(formAction === "create" || (formAction === "update" && selectedItemId)) && loadForm()}
+                                    </div>
+                                )}
+                            </div>
+                            {/*
                             <div className="action-selector">
+
                                 <h3>Select Action:</h3>
                                 <div className="radio-group">
                                     <label className="radio-label">
@@ -1573,99 +1728,15 @@ const App = () => {
                                         <span>Update Existing Record</span>
                                     </label>
                                 </div>
+
                             </div>
+
+
                             {formAction === "update" && (
-                                <div className="item-selector">
-                                    <h3>Select Item to Update:</h3>
-                                    <div className="relation-lookup-container" style={{ maxWidth: "500px" }}>
-                                        {/* Lookup Trigger */}
-                                        <div
-                                            className={`relation-lookup-trigger ${mainItemLookup.isOpen ? "open" : ""}`}
-                                            onClick={() => {
-                                                if (!mainItemLookup.isOpen) handleMainItemLookupSearch("");
-                                            }}
-                                        >
-                                            <span className={`relation-lookup-trigger-text ${!selectedItem ? "placeholder" : ""}`}>
-                                                {selectedItem ? selectedItem.name : "-- Search for a record --"}
-                                            </span>
 
-                                            {selectedItemId && (
-                                                <button
-                                                    className="relation-lookup-clear-btn"
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        setSelectedItemId("");
-                                                        setSelectedItem(null);
-                                                        setFormData({});
-                                                    }}
-                                                    title="Clear selection"
-                                                    type="button"
-                                                >
-                                                    ×
-                                                </button>
-                                            )}
-                                            <span className="relation-lookup-trigger-icon">{mainItemLookup.isOpen ? "▲" : "▼"}</span>
-                                        </div>
-
-                                        {/* Dropdown Panel */}
-                                        {mainItemLookup.isOpen && (
-                                            <div className="relation-lookup-dropdown">
-                                                <div className="relation-lookup-header">
-                                                    <input
-                                                        type="text"
-                                                        className="relation-lookup-search"
-                                                        placeholder="Type to search items..."
-                                                        value={mainItemLookup.searchTerm || ""}
-                                                        onChange={(e) => handleMainItemLookupSearch(e.target.value)}
-                                                        autoFocus
-                                                    />
-                                                    <button
-                                                        className="relation-lookup-close-btn"
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            setMainItemLookup((prev) => ({ ...prev, isOpen: false }));
-                                                        }}
-                                                    >
-                                                        Close
-                                                    </button>
-                                                </div>
-
-                                                <div className="relation-lookup-results main-item-lookup-results">
-                                                    {mainItemLookup.loading && <div className="relation-lookup-loading">Searching board...</div>}
-
-                                                    {!mainItemLookup.loading && mainItemLookup.items && mainItemLookup.items.length === 0 && (
-                                                        <div className="relation-lookup-empty">No records match your search</div>
-                                                    )}
-
-                                                    {!mainItemLookup.loading &&
-                                                        mainItemLookup.items &&
-                                                        mainItemLookup.items.length > 0 &&
-                                                        mainItemLookup.items.map((item) => (
-                                                            <div
-                                                                key={item.id}
-                                                                className={`relation-lookup-item ${String(selectedItemId) === String(item.id) ? "selected" : ""}`}
-                                                                onClick={() => selectUpdateItem(item)}
-                                                            >
-                                                                <div className="relation-lookup-item-name">{item.name}</div>
-                                                                <div className="relation-lookup-item-id">ID: {item.id}</div>
-                                                            </div>
-                                                        ))}
-                                                </div>
-
-                                                <div className="relation-lookup-footer">
-                                                    {mainItemLookup.items?.length || 0} records found in {selectedBoardName}
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
-                                    {itemsError && (
-                                        <div className="error-inline">
-                                            <p>{itemsError}</p>
-                                        </div>
-                                    )}
-                                </div>
                             )}
                             {(formAction === "create" || (formAction === "update" && selectedItemId)) && loadForm()}
+                            */}
                         </div>
                     )}
                 </div>
