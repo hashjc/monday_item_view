@@ -6,14 +6,17 @@ import { getBoardColumns } from "./boardMetadata";
 const monday = mondaySdk();
 const PAGELAYOUTSECTIONS_BOARD_ID = METADATA_BOARD_ID_FROM_FILE;
 const PAGELAYOUT_COL_TITLE_BOARDID = "Board Id";
-const PAGELAYOUT_COL_TITLE_SECTIONORDER = "Section Order";
-const PAGELAYOUT_COL_TITLE_SECTIONS = "Sections";
-const PAGELAYOUT_COL_TITLE_FIELDS_JSON = "Fields";
+const PAGELAYOUT_COL_TITLE_SECTIONS = "Sections"; // ← the column storing the sections JSON array
 const LIMIT = 500;
 
+// Utility to ensure integers
+function int(val) {
+    const parsed = parseInt(val, 10);
+    return isNaN(parsed) ? 0 : parsed;
+}
+
 /**
- * Helper to fetch the actual column IDs for a board based on their titles.
- * This ensures the app doesn't break if internal IDs change but titles remain consistent.
+ * Helper to fetch column ID for a given column title in a board.
  */
 async function getBoardColumnIdsByTitles(boardId, titles) {
     const query = `
@@ -38,139 +41,198 @@ async function getBoardColumnIdsByTitles(boardId, titles) {
 }
 
 /**
- * Validate page layout sections against board's column metadata
+ * Parse the Sections column value from a monday long_text / text column.
  *
- * @param {Array} pageLayoutSectionRecords - Raw records from PageLayout board
- * @param {string} boardId - Target board ID
- * @returns {Promise<Object>} { success, error, validatedSections }
+ * monday long_text columns return:
+ *   cv.text  = the raw stored string (most reliable)
+ *   cv.value = '{"text":"[...]","changed_at":"..."}' (wrapper object)
+ *
+ * The stored string is a JSON array of section objects:
+ *   [{ Id, Title, fields: [...], rules, order }, ...]
+ *
+ * @param {Object} cv - column_value object { id, text, value, column }
+ * @returns {Array|null} Parsed sections array or null on failure
  */
-async function checkPageLayoutColumnValidity(pageLayoutSectionRecords, boardId) {
+function parseSectionsColumnValue(cv) {
+    if (!cv) return null;
+
+    // Strategy 1: cv.text is the raw stored string
+    const rawText = cv.text?.trim();
+    if (rawText && rawText.startsWith("[")) {
+        try {
+            const parsed = JSON.parse(rawText);
+            if (Array.isArray(parsed)) return parsed;
+        } catch (_) {}
+    }
+
+    // Strategy 2: cv.value is the monday wrapper object { text: "[...]", changed_at: "..." }
+    if (cv.value) {
+        try {
+            const outer = JSON.parse(cv.value);
+            if (outer && typeof outer.text === "string" && outer.text.trim().startsWith("[")) {
+                const inner = JSON.parse(outer.text);
+                if (Array.isArray(inner)) return inner;
+            }
+        } catch (_) {}
+
+        // Strategy 3: cv.value itself is the array string (no wrapper)
+        try {
+            const direct = JSON.parse(cv.value);
+            if (Array.isArray(direct)) return direct;
+        } catch (_) {}
+    }
+
+    return null;
+}
+
+/**
+ * Validate sections parsed from the Sections column against the target board's columns.
+ *
+ * NEW STRUCTURE (one PLS record, Sections column holds):
+ *   [
+ *     { Id: "sec1", Title: "Sec 1", fields: [{columnId, type, isRequired}, ...], rules: {}, order: "1" },
+ *     { Id: "sec2", Title: "Sec 2", fields: [...], rules: {}, order: "2" },
+ *     ...
+ *   ]
+ *
+ * Returns validatedSections in the same shape the rest of the app expects:
+ *   [{
+ *     recordId,       // the PLS monday item id
+ *     recordName,     // the PLS monday item name
+ *     sectionData: {  // mirrors old sectionData shape used in App.jsx
+ *       id, title, fields: [{ columnId, type, isRequired, label, isValid, duplicate, ... }]
+ *     },
+ *     fields,         // same array (convenience reference)
+ *     isValid,
+ *     isFullyValid,
+ *     hasInvalidFields,
+ *     hasDuplicateFields,
+ *   }]
+ */
+async function checkPageLayoutColumnValidity(plsRecord, boardId) {
+    console.log("Pls record ", plsRecord);
     try {
         // Step 1: Get board's actual column metadata
+        const plsRecordId = plsRecord?.id ?? null;
+        const plsRecordName = plsRecord.name ?? null;
         const boardColumnsResult = await getBoardColumns(boardId);
 
-        if (!boardColumnsResult?.success || !boardColumnsResult?.columns || !Array.isArray(boardColumnsResult.columns)) {
+        if (!boardColumnsResult?.success || !Array.isArray(boardColumnsResult?.columns)) {
             return {
                 success: false,
-                error: "Could not fetch target board column metadata. Target Board Id: ", boardId,
+                error: `Could not fetch target board column metadata. Board Id: ${boardId}`,
                 validatedSections: [],
             };
         }
 
         const boardColumns = boardColumnsResult.columns;
-        console.log("PageLayoutService : Board columns ", boardColumns);
-
         const boardColumnMetadataMap = new Map(boardColumns.map((col) => [col.id, col.title]));
         const validColumnIds = new Set(boardColumns.map((col) => col.id));
-        const columnIdUsageMap = {};
-        const validatedSections = [];
 
-        // Step 3: Parse and validate each section record
-        for (const record of pageLayoutSectionRecords) {
-            try {
-                console.log("Record id ", record.id);
-                const sectionsColumn = record.column_values.find((cv) => cv.column && cv.column.title === PAGELAYOUT_COL_TITLE_FIELDS_JSON);
-                const fieldsInfoJsonObj = JSON.parse(JSON.stringify(sectionsColumn.text));
-                console.log("Record id json obj00 ", fieldsInfoJsonObj);
-                console.log("Record id json obj typeof ", typeof fieldsInfoJsonObj);
-                console.log("Record id json obj fields ", fieldsInfoJsonObj?.fields);
-                if (!sectionsColumn) {
-                    validatedSections.push({
-                        recordId: record.id,
-                        recordName: record.name,
-                        error: "Fields JSON column not found in record",
-                        isValid: false,
-                    });
-                    continue;
-                }
+        // Step 2: Find and parse the Sections column from the PLS record
+        const sectionsCV = plsRecord.column_values.find((cv) => cv.column && cv.column.title === PAGELAYOUT_COL_TITLE_SECTIONS);
 
-                //console.log("fields json cv object", sectionsColumn);
-                const fieldsInfoJsonStr = JSON.parse(fieldsInfoJsonObj);
-                const fieldsInfoJsonParsed = fieldsInfoJsonStr?.fields ?? [];
-                //console.log("fields json str (cv.text) ", fieldsInfoJsonStr);
-                console.log("fields json val (cv.value)1 ", fieldsInfoJsonStr);
-                console.log("fields json val (cv.value)1  type ", typeof fieldsInfoJsonStr);
-                console.log("fields json val (cv.value)", fieldsInfoJsonParsed);
+        if (!sectionsCV) {
+            return {
+                success: false,
+                error: `Column "${PAGELAYOUT_COL_TITLE_SECTIONS}" not found in PLS record "${plsRecord.name}"`,
+                validatedSections: [],
+            };
+        }
+        console.log("Raw sections ", sectionsCV);
+        console.log("Raw sections text ", sectionsCV?.text);
+        console.log("Raw sections value = ", sectionsCV?.value);
+        const jsonObject = JSON.parse(sectionsCV?.text ?? null);
 
-
-
-                // Track column usage across all sections (for duplicate detection)
-                fieldsInfoJsonParsed.forEach((field) => {
-                    if (field.columnId) {
-                        columnIdUsageMap[field.columnId] = (columnIdUsageMap[field.columnId] || 0) + 1;
-                    }
-                });
-
-                validatedSections.push({
-                    recordId: record.id,
-                    recordName: record.name,
-                    fields: fieldsInfoJsonParsed, // validated + enriched in Step 4
-                    sectionData: fieldsInfoJsonParsed, // raw array (kept for compatibility)
-                    isValid: true,
-                });
-            } catch (error) {
-                validatedSections.push({
-                    recordId: record.id,
-                    recordName: record.name,
-                    error: error.message,
-                    isValid: false,
-                });
-            }
+        console.log("Raw sections value = ", jsonObject);
+        const rawSections = parseSectionsColumnValue(sectionsCV);
+        console.log("Raw sections ", rawSections);
+        if (!rawSections) {
+            return {
+                success: false,
+                error: `Could not parse JSON from "${PAGELAYOUT_COL_TITLE_SECTIONS}" column in record "${plsRecord.name}"`,
+                validatedSections: [],
+            };
         }
 
-        // Step 4: Validate each field's columnId, mark duplicates, apply default labels
-        for (const section of validatedSections) {
-            if (!section.fields) continue;
+        // Step 3: Build a columnId usage map across ALL sections (for cross-section duplicate detection)
+        const columnIdUsageMap = {};
+        rawSections.forEach((section) => {
+            (section.fields || []).forEach((field) => {
+                if (field.columnId) {
+                    columnIdUsageMap[field.columnId] = (columnIdUsageMap[field.columnId] || 0) + 1;
+                }
+            });
+        });
 
-            section.fields = section.fields.map((field) => {
+        // Step 4: Sort sections by order, then validate each one
+        const sortedSections = [...rawSections].sort((a, b) => {
+            const oA = parseInt(a.order ?? a.Order ?? "0", 10);
+            const oB = parseInt(b.order ?? b.Order ?? "0", 10);
+            return oA - oB;
+        });
+
+        const validatedSections = sortedSections.map((section) => {
+            const rawFields = section.fields || [];
+
+            if (rawFields.length === 0) {
+                return {
+                    ...section,
+                    fields: [],
+                    isValid: true,
+                    isFullyValid: true,
+                    hasInvalidFields: false,
+                    hasDuplicateFields: false,
+                };
+            }
+
+            // Enrich each field with label, validity, duplicate flag
+            const enrichedFields = rawFields.map((field) => {
                 const columnId = field.columnId;
 
-                // Apply board column title as label if label is blank (new JSON schema removed labels)
-                let currentLabel = field.label;
-                if (!currentLabel || currentLabel.trim() === "") {
-                    currentLabel = boardColumnMetadataMap.get(columnId) || columnId;
-                }
+                // Use board column title as label (new schema has no stored label)
+                const label = boardColumnMetadataMap.get(columnId) || columnId;
 
                 const isValidColumnId = validColumnIds.has(columnId);
                 const isDuplicate = columnIdUsageMap[columnId] > 1;
 
                 return {
                     ...field,
-                    label: currentLabel,
+                    label,
                     isValid: isValidColumnId,
                     duplicate: isDuplicate,
                     validationError: !isValidColumnId ? `Column '${columnId}' does not exist in board` : null,
                 };
             });
 
-            // BUG FIX: was section.sectionData.fields — sectionData IS the array, has no .fields property
-            // Correct reference is section.fields (the mapped array above)
-            const hasInvalidFields = section.fields.some((f) => !f.isValid);
-            const hasDuplicateFields = section.fields.some((f) => f.duplicate);
+            const hasInvalidFields = enrichedFields.some((f) => !f.isValid);
+            const hasDuplicateFields = enrichedFields.some((f) => f.duplicate);
 
-            section.hasInvalidFields = hasInvalidFields;
-            section.hasDuplicateFields = hasDuplicateFields;
-            section.isFullyValid = !hasInvalidFields && !hasDuplicateFields;
-        }
-
-        console.log("Page Layout Section records validated sections", {
-            validatedSections,
-            validationSummary: {
-                totalSections: validatedSections.length,
-                fullyValidSections: validatedSections.filter((s) => s.isFullyValid).length,
-            },
+            return {
+                ...section,
+                fields: enrichedFields, // convenience reference
+                isValid: true,
+                isFullyValid: !hasInvalidFields && !hasDuplicateFields,
+                hasInvalidFields,
+                hasDuplicateFields,
+            };
         });
+
+        const summary = {
+            totalSections: validatedSections.length,
+            fullyValidSections: validatedSections.filter((s) => s.isFullyValid).length,
+        };
+
+        console.log("[PageLayoutService] Validated sections", { validatedSections, summary });
 
         return {
             success: true,
             error: null,
             validatedSections,
-            validationSummary: {
-                totalSections: validatedSections.length,
-                fullyValidSections: validatedSections.filter((s) => s.isFullyValid).length,
-            },
+            validationSummary: summary,
         };
     } catch (error) {
+        console.error("[PageLayoutService] checkPageLayoutColumnValidity error:", error);
         return {
             success: false,
             error: error.message || "Validation failed",
@@ -180,11 +242,13 @@ async function checkPageLayoutColumnValidity(pageLayoutSectionRecords, boardId) 
 }
 
 /**
- * Retrieve page layout information for a specific board using server-side filtering
- * WITH VALIDATION
+ * Retrieve and validate the page layout for a given board.
  *
- * @param {string} boardId - The target board ID to find layout for
- * @returns {Promise<Object>} { success, error, items, validatedSections, validationSummary }
+ * Queries the PageLayoutSections board for the ONE record that matches boardId,
+ * then parses + validates its Sections column JSON.
+ *
+ * @param {string} boardId
+ * @returns {Promise<{ success, error, items, validatedSections, validationSummary }>}
  */
 export async function retrievePageLayoutInfoForBoard(boardId) {
     if (!boardId || !PAGELAYOUTSECTIONS_BOARD_ID) {
@@ -198,19 +262,19 @@ export async function retrievePageLayoutInfoForBoard(boardId) {
     }
 
     try {
-        // Step 1: Get dynamic Column ID for the filter
+        // Step 1: Resolve the column ID for the Board Id filter column
         const colMap = await getBoardColumnIdsByTitles(PAGELAYOUTSECTIONS_BOARD_ID, [PAGELAYOUT_COL_TITLE_BOARDID]);
         const boardIdColId = colMap[PAGELAYOUT_COL_TITLE_BOARDID];
 
         if (!boardIdColId) {
-            throw new Error("Filter column 'Board Id' not found in PageLayout board");
+            throw new Error(`Filter column "${PAGELAYOUT_COL_TITLE_BOARDID}" not found in PageLayout board`);
         }
 
-        // Step 2: Build Query using Template Literals
+        // Step 2: Query the PLS board — filter to the single record for this board
         const query = `
             query {
                 boards(ids: [${PAGELAYOUTSECTIONS_BOARD_ID}]) {
-                    items_page (
+                    items_page(
                         limit: ${int(LIMIT)},
                         query_params: {
                             rules: [{
@@ -241,32 +305,53 @@ export async function retrievePageLayoutInfoForBoard(boardId) {
         const response = await monday.api(query);
 
         if (response.errors) {
-            throw new Error(response.errors[0].message);
+            throw new Error(response.errors[0]?.message || "GraphQL error");
         }
 
-        const pageLayoutSectionRecords = response?.data?.boards?.[0]?.items_page?.items || [];
-        console.log("Page Layout Section records", pageLayoutSectionRecords);
-        // Step 3: Apply validations
-        const validationResult = await checkPageLayoutColumnValidity(pageLayoutSectionRecords, boardId);
-        if (!validationResult.success) {
+        const items = response?.data?.boards?.[0]?.items_page?.items || [];
+        console.log("[PageLayoutService] PLS records fetched:", items.length);
+
+        if (items.length === 0) {
             return {
                 success: true,
-                items: pageLayoutSectionRecords,
+                items: [],
+                validatedSections: [],
+                validationSummary: { totalSections: 0, fullyValidSections: 0 },
+                error: null,
+            };
+        }
+
+        // Step 3: Use the FIRST matching record (new model = one record per board)
+        // If somehow multiple records exist, log a warning but continue with the first.
+        if (items.length > 1) {
+            console.warn(`[PageLayoutService] Expected 1 PLS record for board ${boardId}, found ${items.length}. Using first.`);
+        }
+        const plsRecord = items[0];
+
+        // Step 4: Validate and enrich sections from the Sections column JSON
+        const validationResult = await checkPageLayoutColumnValidity(plsRecord, boardId);
+
+        if (!validationResult.success) {
+            console.warn("[PageLayoutService] Validation failed:", validationResult.error);
+            return {
+                success: true, // data was fetched, validation just found issues
+                items,
                 validatedSections: [],
                 validationSummary: null,
                 validationError: validationResult.error,
+                error: null,
             };
         }
-        console.log("Page Layout Section records validated sections ", validationResult);
-        // Step 4: Return both raw items and validated sections
+
         return {
             success: true,
-            items: pageLayoutSectionRecords, // Raw records
-            validatedSections: validationResult.validatedSections, // Validated & enhanced
+            items,
+            validatedSections: validationResult.validatedSections,
             validationSummary: validationResult.validationSummary,
             error: null,
         };
     } catch (error) {
+        console.error("[PageLayoutService] retrievePageLayoutInfoForBoard error:", error);
         return {
             success: false,
             error: error.message,
@@ -277,16 +362,12 @@ export async function retrievePageLayoutInfoForBoard(boardId) {
     }
 }
 
-// Utility to ensure integers
-function int(val) {
-    const parsed = parseInt(val, 10);
-    return isNaN(parsed) ? 0 : parsed;
-}
-
 /**
- * React Hook wrapper for retrievePageLayoutInfoForBoard
- * Provides loading state and automatic refresh on boardId change
- * NOW INCLUDES VALIDATION DATA
+ * React hook — wraps retrievePageLayoutInfoForBoard with loading state.
+ * API is unchanged so App.jsx requires no edits.
+ *
+ * Usage (unchanged in App.jsx):
+ *   const { items, validatedSections, validationSummary, loading, error } = usePageLayoutInfo(boardId);
  */
 export function usePageLayoutInfo(boardId) {
     const [data, setData] = useState({
@@ -314,7 +395,7 @@ export function usePageLayoutInfo(boardId) {
         retrievePageLayoutInfoForBoard(boardId)
             .then((result) => {
                 setData({
-                    items: result.items,
+                    items: result.items || [],
                     validatedSections: result.validatedSections || [],
                     validationSummary: result.validationSummary || null,
                     loading: false,
@@ -327,7 +408,7 @@ export function usePageLayoutInfo(boardId) {
                     validatedSections: [],
                     validationSummary: null,
                     loading: false,
-                    error: err.message || `Unknown error while retrieving page layouts for board ${boardId}`,
+                    error: err.message || `Unknown error for board ${boardId}`,
                 });
             });
     }, [boardId]);

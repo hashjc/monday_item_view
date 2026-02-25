@@ -14,12 +14,15 @@ import {
 } from "./hooks/items";
 import { getBoardColumns } from "./hooks/boardMetadata";
 import { getAllUsers, searchUsersByNameOrEmail } from "./hooks/usersAndTeams";
+import { getUsersProfileName } from "./hooks/userProfiles";
+import { filterVisibleSections } from "./hooks/sectionVisibility";
+import { computeFieldVisibility } from "./layoutControls/fieldVisibility"; // field-level visibility
+import { validateVisibleFields } from "./layoutControls/fieldValidation"; // field-level validation
 
 const monday = mondaySdk();
 
 // =============================================================
 // PHONE COUNTRIES DATA
-// monday.com countryShortName uses ISO 3166-1 alpha-2 codes
 // =============================================================
 const PHONE_COUNTRIES = [
     { code: "US", name: "United States", dial: "+1", flag: "🇺🇸" },
@@ -76,11 +79,8 @@ const PHONE_COUNTRIES = [
 
 // =============================================================
 // PhoneInput Component
-// Renders: [🇺🇸 ▾] [ number input ]
-// Stores in formData as: { phone: "9885551234", countryShortName: "US" }
 // =============================================================
 const PhoneInput = ({ columnId, value, onChange, label }) => {
-    // value is either "" or { phone: "...", countryShortName: "..." }
     const phoneObj = value && typeof value === "object" ? value : { phone: "", countryShortName: "US" };
     const selectedCode = phoneObj.countryShortName || "US";
     const phoneNumber = phoneObj.phone || "";
@@ -100,7 +100,6 @@ const PhoneInput = ({ columnId, value, onChange, label }) => {
           )
         : PHONE_COUNTRIES;
 
-    // Close dropdown on outside click
     useEffect(() => {
         const handler = (e) => {
             if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
@@ -119,14 +118,12 @@ const PhoneInput = ({ columnId, value, onChange, label }) => {
     };
 
     const handlePhoneChange = (e) => {
-        // Strip non-numeric chars (keep digits only for monday.com)
         const raw = e.target.value.replace(/[^\d\s\-().]/g, "");
         onChange(columnId, { phone: raw, countryShortName: selectedCode });
     };
 
     return (
         <div className="phone-input-wrapper" ref={dropdownRef}>
-            {/* Country selector trigger */}
             <div
                 className={`phone-country-trigger ${dropdownOpen ? "open" : ""}`}
                 onClick={() => setDropdownOpen((prev) => !prev)}
@@ -136,11 +133,7 @@ const PhoneInput = ({ columnId, value, onChange, label }) => {
                 <span className="phone-dial">{selectedCountry.dial}</span>
                 <span className="phone-caret">▾</span>
             </div>
-
-            {/* Number input */}
             <input type="tel" className="phone-number-input" value={phoneNumber} onChange={handlePhoneChange} placeholder={`${label || "Phone"} number`} />
-
-            {/* Country dropdown */}
             {dropdownOpen && (
                 <div className="phone-country-dropdown">
                     <div className="phone-country-search-wrapper">
@@ -176,7 +169,9 @@ const PhoneInput = ({ columnId, value, onChange, label }) => {
     );
 };
 
-// New Helper: The Pill Component
+// =============================================================
+// RecordPill Component
+// =============================================================
 const RecordPill = ({ label, onRemove }) => (
     <div className="selected-record-pill">
         <span className="pill-text">{label}</span>
@@ -192,14 +187,13 @@ const RecordPill = ({ label, onRemove }) => (
     </div>
 );
 
+// =============================================================
+// FileUpload Component
+// =============================================================
 const FileUpload = ({ columnId, value, onChange, field, isUpdate }) => {
-    // value shape:
-    //   create mode: File[] (browser File objects)
-    //   update mode: { existingFiles: [{name, assetId, url}], newFiles: File[] }
     const maxFiles = field.maxFiles ? parseInt(field.maxFiles) : null;
     const fileInputRef = React.useRef(null);
 
-    // Normalise to consistent shape regardless of mode
     const existingFiles = isUpdate ? value?.existingFiles || [] : [];
     const newFiles = isUpdate ? value?.newFiles || [] : Array.isArray(value) ? value : [];
     const totalCount = existingFiles.length + newFiles.length;
@@ -207,7 +201,6 @@ const FileUpload = ({ columnId, value, onChange, field, isUpdate }) => {
     const handleFileAdd = (e) => {
         const selected = Array.from(e.target.files || []);
         if (!selected.length) return;
-
         const remaining = maxFiles ? maxFiles - totalCount : Infinity;
         if (remaining <= 0) {
             alert(`Maximum ${maxFiles} file(s) allowed.`);
@@ -215,32 +208,22 @@ const FileUpload = ({ columnId, value, onChange, field, isUpdate }) => {
             return;
         }
         const toAdd = selected.slice(0, remaining);
-        if (selected.length > remaining) {
-            alert(`Only ${remaining} more file(s) can be added (max ${maxFiles}).`);
-        }
-
-        if (isUpdate) {
-            onChange(columnId, { existingFiles, newFiles: [...newFiles, ...toAdd] });
-        } else {
-            onChange(columnId, [...newFiles, ...toAdd]);
-        }
-        e.target.value = ""; // reset so same file can be re-selected
+        if (selected.length > remaining) alert(`Only ${remaining} more file(s) can be added (max ${maxFiles}).`);
+        if (isUpdate) onChange(columnId, { existingFiles, newFiles: [...newFiles, ...toAdd] });
+        else onChange(columnId, [...newFiles, ...toAdd]);
+        e.target.value = "";
     };
 
     const removeNewFile = (index) => {
         const updated = newFiles.filter((_, i) => i !== index);
-        if (isUpdate) {
-            onChange(columnId, { existingFiles, newFiles: updated });
-        } else {
-            onChange(columnId, updated);
-        }
+        if (isUpdate) onChange(columnId, { existingFiles, newFiles: updated });
+        else onChange(columnId, updated);
     };
 
     const atLimit = maxFiles !== null && totalCount >= maxFiles;
 
     return (
         <div className="file-upload-wrapper">
-            {/* Existing files (update mode only) — no delete icon per monday limitation */}
             {existingFiles.length > 0 && (
                 <div className="file-list existing-files">
                     <div className="file-list-label">Existing files (cannot be deleted via API):</div>
@@ -254,8 +237,6 @@ const FileUpload = ({ columnId, value, onChange, field, isUpdate }) => {
                     ))}
                 </div>
             )}
-
-            {/* New files staged for upload */}
             {newFiles.length > 0 && (
                 <div className="file-list new-files">
                     {isUpdate && <div className="file-list-label">New files to upload:</div>}
@@ -273,8 +254,6 @@ const FileUpload = ({ columnId, value, onChange, field, isUpdate }) => {
                     ))}
                 </div>
             )}
-
-            {/* Upload button */}
             {!atLimit && (
                 <button type="button" className="file-upload-btn" onClick={() => fileInputRef.current?.click()}>
                     <span>📎</span>
@@ -287,50 +266,92 @@ const FileUpload = ({ columnId, value, onChange, field, isUpdate }) => {
                 </button>
             )}
             {atLimit && <div className="file-upload-limit-msg">Maximum {maxFiles} file(s) reached.</div>}
-
             <input ref={fileInputRef} type="file" multiple style={{ display: "none" }} onChange={handleFileAdd} />
         </div>
     );
 };
 
+// =============================================================
+// App
+// =============================================================
 const App = () => {
     console.log("App start");
+
+    // ── Core context state ──────────────────────────────────────
     const [context, setContext] = useState();
     const [boardId, setBoardId] = useState(null);
     const [itemId, setItemId] = useState(null);
     const [selectedBoardName, setSelectedBoardName] = useState("");
     const [formAction, setFormAction] = useState("create");
 
+    // ── Item selection ──────────────────────────────────────────
     const [boardItems, setBoardItems] = useState([]);
     const [loadingItems, setLoadingItems] = useState(false);
     const [itemsError, setItemsError] = useState(null);
     const [selectedItemId, setSelectedItemId] = useState("");
     const [selectedItem, setSelectedItem] = useState(null);
 
+    // ── Form state ──────────────────────────────────────────────
     const [formData, setFormData] = useState({});
     const [collapsedSections, setCollapsedSections] = useState({});
 
+    // ── Board metadata ──────────────────────────────────────────
     const [boardColumns, setBoardColumns] = useState([]);
     const [peopleLookups, setPeopleLookups] = useState({});
     const [relationLookups, setRelationLookups] = useState({});
     const searchTimers = useRef({});
 
+    // ── Submit state ────────────────────────────────────────────
     const [submitting, setSubmitting] = useState(false);
-    const [submitStatus, setSubmitStatus] = useState(null); // { phase: string, error: boolean }
+    const [submitStatus, setSubmitStatus] = useState(null);
 
+    // ── Main item lookup (board view update mode) ───────────────
     const [mainItemLookup, setMainItemLookup] = useState({
         items: [],
         loading: false,
         searchTerm: "",
         isOpen: false,
     });
-    //   ← MOVE HOOKS HERE, before any useEffect that references them
+
+    // ── User profile state (NEW) ────────────────────────────────
+    // null  = not yet fetched
+    // ""    = fetched but user has no profile assigned (treated as blank)
+    // "xyz" = the actual profile string
+    const [userProfile, setUserProfile] = useState(null);
+    const [userProfileLoading, setUserProfileLoading] = useState(true);
+
+    // ── Hooks (declared before any useEffect that references them) ──
     const { boards: boardsFromHook } = useBoards();
     const boards = boardsFromHook || [];
     const { items, validatedSections, validationSummary, loading, error } = usePageLayoutInfo(boardId);
     const pageLayoutLoading = loading;
     const pageLayoutError = error;
 
+    // ── Derived: sections visible to this user ───────────────────
+    // While userProfile is still loading (null) we don't filter yet — avoids
+    // a flash of "no sections" before the profile arrives.
+    console.log('Run Filter visible sections ');
+    const visibleSections =
+        userProfile === null
+            ? validatedSections // still loading — show all to avoid flicker
+            : filterVisibleSections(validatedSections, userProfile);
+
+    // ── Derived: field-level visibility map ─────────────────────
+    // Recomputed on every formData change (React re-render).
+    // Result: { [columnId]: boolean }  — true = show, false = hide
+    //
+    // SEPARATE from section visibility:
+    //   sectionVisibility  = profile-based,     static per session
+    //   fieldVisibilityMap = form-value-based,  changes as user types
+    //
+    // Two-pass algorithm handles chained dependencies (field A depends on
+    // field B which itself has a visibility rule) without infinite loops.
+    console.log('Run compute field visiblity map ')
+    const fieldVisibilityMap = computeFieldVisibility(visibleSections, formData);
+
+    // =============================================================
+    // EFFECT: Get monday context (boardId, itemId)
+    // =============================================================
     useEffect(() => {
         monday.execute("valueCreatedForUser");
         monday
@@ -345,11 +366,8 @@ const App = () => {
                         const nameFromContext = (res.data.board && res.data.board.name) || (res.data.selectedBoard && res.data.selectedBoard.name) || null;
                         if (nameFromContext) setSelectedBoardName(nameFromContext);
                     }
-                    // Item view detection
                     const detectedItemId = res.data.itemId || null;
-                    if (detectedItemId) {
-                        setItemId(String(detectedItemId));
-                    }
+                    if (detectedItemId) setItemId(String(detectedItemId));
                 }
             })
             .catch((err) => console.error("Failed to get monday context:", err));
@@ -365,13 +383,45 @@ const App = () => {
                     if (updatedName) setSelectedBoardName(updatedName);
                 }
                 const updatedItemId = res.data.itemId || null;
-                if (updatedItemId) {
-                    setItemId(String(updatedItemId));
-                }
+                if (updatedItemId) setItemId(String(updatedItemId));
             }
         });
     }, []);
 
+    // =============================================================
+    // EFFECT: Fetch current user's profile from the Users board (NEW)
+    // Runs once we have the monday context (which gives us the userId).
+    // =============================================================
+    useEffect(() => {
+        if (!context) return; // wait for context
+
+        const userId = context.user?.id || context.userId || null;
+        if (!userId) {
+            // No userId available — treat as blank profile, show all sections
+            console.warn("[App] Could not detect current userId from context. All sections will be shown.");
+            setUserProfile("");
+            setUserProfileLoading(false);
+            return;
+        }
+
+        setUserProfileLoading(true);
+        getUsersProfileName(userId)
+            .then((profile) => {
+                // Normalise null/undefined → "" so rule engine treats them as blank
+                const normProfile = profile === null || profile === undefined ? "" : String(profile).trim();
+                console.log(`[App] User ${userId} profile: "${normProfile || "(blank)"}"`);
+                setUserProfile(normProfile);
+            })
+            .catch((err) => {
+                console.error("[App] Failed to fetch user profile:", err);
+                setUserProfile(""); // fail-open: show all sections
+            })
+            .finally(() => setUserProfileLoading(false));
+    }, [context]);
+
+    // =============================================================
+    // EFFECT: Load board columns when boardId changes
+    // =============================================================
     useEffect(() => {
         if (!boardId) return;
         getBoardColumns(boardId).then((result) => {
@@ -382,9 +432,10 @@ const App = () => {
         });
     }, [boardId]);
 
+    // =============================================================
+    // EFFECT: Item view auto-load
+    // =============================================================
     useEffect(() => {
-        // Item view: once we have both the item id and a valid layout loaded,
-        // auto-select the item and load its data into the form.
         if (!itemId) return;
         if (!validatedSections || validatedSections.length === 0) return;
         if (pageLayoutLoading) return;
@@ -395,20 +446,21 @@ const App = () => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [itemId, validatedSections, pageLayoutLoading]);
 
-    // Close lookups on outside click
+    // =============================================================
+    // EFFECT: Close lookups on outside click
+    // =============================================================
     useEffect(() => {
         const handleClickOutside = (event) => {
-            // Check if click is outside ANY lookup container
             if (!event.target.closest(".relation-lookup-container")) {
                 setRelationLookups((prev) => {
-                    const newState = { ...prev };
-                    Object.keys(newState).forEach((key) => (newState[key].isOpen = false));
-                    return newState;
+                    const s = { ...prev };
+                    Object.keys(s).forEach((k) => (s[k].isOpen = false));
+                    return s;
                 });
                 setPeopleLookups((prev) => {
-                    const newState = { ...prev };
-                    Object.keys(newState).forEach((key) => (newState[key].isOpen = false));
-                    return newState;
+                    const s = { ...prev };
+                    Object.keys(s).forEach((k) => (s[k].isOpen = false));
+                    return s;
                 });
                 setMainItemLookup((prev) => ({ ...prev, isOpen: false }));
             }
@@ -417,48 +469,45 @@ const App = () => {
         return () => document.removeEventListener("mousedown", handleClickOutside);
     }, []);
 
+    // =============================================================
+    // EFFECT: Close lookups on scroll
+    // =============================================================
     useEffect(() => {
         const handleScroll = (event) => {
-            if (!event.target || event.target.nodeType !== 1) {
-                return;
-            }
-            // If the scroll is happening inside a relation or people lookup list, DO NOT close it
+            if (!event.target || event.target.nodeType !== 1) return;
             if (
                 event.target.closest(".relation-lookup-results") ||
                 event.target.closest(".phone-country-list") ||
                 event.target.closest(".main-item-lookup-results")
-            ) {
+            )
                 return;
-            }
-
-            // Close menus if the user scrolls the main board or section
             setRelationLookups((prev) => {
-                const newState = { ...prev };
-                Object.keys(newState).forEach((key) => (newState[key].isOpen = false));
-                return newState;
+                const s = { ...prev };
+                Object.keys(s).forEach((k) => (s[k].isOpen = false));
+                return s;
             });
-
             setPeopleLookups((prev) => {
-                const newState = { ...prev };
-                Object.keys(newState).forEach((key) => (newState[key].isOpen = false));
-                return newState;
+                const s = { ...prev };
+                Object.keys(s).forEach((k) => (s[k].isOpen = false));
+                return s;
             });
-
             setMainItemLookup((prev) => ({ ...prev, isOpen: false }));
         };
         window.addEventListener("scroll", handleScroll, true);
         return () => window.removeEventListener("scroll", handleScroll, true);
     }, []);
 
+    // =============================================================
+    // Board items (update mode)
+    // =============================================================
     const fetchBoardItemsForUpdate = async () => {
         if (!boardId) return;
         setLoadingItems(true);
         setItemsError(null);
         try {
             const result = await retrieveBoardItems(boardId);
-            if (result.success) {
-                setBoardItems(result.items);
-            } else {
+            if (result.success) setBoardItems(result.items);
+            else {
                 setItemsError(result.error);
                 setBoardItems([]);
             }
@@ -470,32 +519,21 @@ const App = () => {
         }
     };
 
-    // logic to handle searching for items on the MAIN board
     const handleMainItemLookupSearch = (searchTerm) => {
         setMainItemLookup((prev) => ({ ...prev, searchTerm, loading: true }));
-
         if (searchTimers.current["main_update"]) clearTimeout(searchTimers.current["main_update"]);
-
         searchTimers.current["main_update"] = setTimeout(async () => {
             try {
-                // Re-use your existing service
                 const result = searchTerm.trim() ? await retrieveBoardItemsByItemName(boardId, searchTerm) : await retrieveBoardItems(boardId);
-
-                setMainItemLookup((prev) => ({
-                    ...prev,
-                    items: result.success ? result.items : [],
-                    loading: false,
-                    isOpen: true,
-                }));
+                setMainItemLookup((prev) => ({ ...prev, items: result.success ? result.items : [], loading: false, isOpen: true }));
             } catch (err) {
                 setMainItemLookup((prev) => ({ ...prev, loading: false }));
             }
         }, 500);
     };
 
-    // Selection handler for the update record
     const selectUpdateItem = (item) => {
-        handleItemSelection({ target: { value: item.id } }); // Trigger existing details fetch
+        handleItemSelection({ target: { value: item.id } });
         setMainItemLookup((prev) => ({ ...prev, isOpen: false, searchTerm: "" }));
     };
 
@@ -518,9 +556,7 @@ const App = () => {
         }
         try {
             const result = await retrieveItemById(itemId);
-            console.log("Item rtrived full record ", result);
             if (result.success) {
-                console.log("Result ", result);
                 setSelectedItem(result.item);
                 const itemData = {};
                 itemData["name"] = result.item.name;
@@ -529,26 +565,16 @@ const App = () => {
                         try {
                             const parsed = JSON.parse(col.value);
                             if (col.type === "people") {
-                                // Store full object with Name and Photo
                                 itemData[col.id] =
                                     parsed.personsAndTeams?.map((p) => ({
                                         id: parseInt(p.id),
-                                        name: col.text.split(", ")[parsed.personsAndTeams.indexOf(p)], // Fallback for name
-                                        photo: null, // GraphQL doesn't return photo in col.value
+                                        name: col.text.split(", ")[parsed.personsAndTeams.indexOf(p)],
+                                        photo: null,
                                     })) || [];
                             } else if (col.type === "board_relation") {
-                                try {
-                                    const ids = col.linked_item_ids || [];
-                                    const displayVal = col.display_value || "";
-                                    const names = displayVal ? displayVal.split(", ").map((n) => n.trim()) : [];
-
-                                    itemData[col.id] = ids.map((id, index) => ({
-                                        id: id,
-                                        name: names[index] || `Item ${id}`,
-                                    }));
-                                } catch (e) {
-                                    itemData[col.id] = [];
-                                }
+                                const ids = col.linked_item_ids || [];
+                                const names = (col.display_value || "").split(", ").map((n) => n.trim());
+                                itemData[col.id] = ids.map((id, index) => ({ id, name: names[index] || `Item ${id}` }));
                             }
                         } catch (e) {
                             itemData[col.id] = [];
@@ -557,18 +583,14 @@ const App = () => {
                         try {
                             const parsed = JSON.parse(col.value);
                             if (col.type === "status") itemData[col.id] = parsed.index || "";
-                            else if (col.type === "dropdown") itemData[col.id] = parsed.ids || [];
+                            else itemData[col.id] = parsed.ids || [];
                         } catch (e) {
                             itemData[col.id] = col.text || "";
                         }
                     } else if (col.type === "phone") {
-                        // Parse phone back into { phone, countryShortName } for our PhoneInput
                         try {
                             const parsed = JSON.parse(col.value);
-                            itemData[col.id] = {
-                                phone: parsed.phone || "",
-                                countryShortName: parsed.countryShortName || "US",
-                            };
+                            itemData[col.id] = { phone: parsed.phone || "", countryShortName: parsed.countryShortName || "US" };
                         } catch (e) {
                             itemData[col.id] = { phone: col.text || "", countryShortName: "US" };
                         }
@@ -577,24 +599,17 @@ const App = () => {
                     } else if (col.type === "link") {
                         try {
                             const parsed = JSON.parse(col.value);
-                            console.log("link value ", parsed);
-                            // Store as object so renderField and formatColumnValue can handle it cleanly
                             itemData[col.id] = { url: parsed.url || "", text: parsed.text || "" };
                         } catch (_) {
                             itemData[col.id] = { url: col.text || "", text: col.text || "" };
                         }
                     } else if (col.type === "file") {
-                        // Parse existing files from value JSON; store as array of { name, assetId, url }
                         try {
                             const parsed = JSON.parse(col.value);
                             const urls = (col.text || "").split(", ").map((u) => u.trim());
                             itemData[col.id] = {
-                                existingFiles: (parsed.files || []).map((f, i) => ({
-                                    name: f.name,
-                                    assetId: f.assetId,
-                                    url: urls[i] || "",
-                                })),
-                                newFiles: [], // File objects the user selects in update mode
+                                existingFiles: (parsed.files || []).map((f, i) => ({ name: f.name, assetId: f.assetId, url: urls[i] || "" })),
+                                newFiles: [],
                             };
                         } catch (_) {
                             itemData[col.id] = { existingFiles: [], newFiles: [] };
@@ -618,67 +633,53 @@ const App = () => {
         setFormData((prev) => ({ ...prev, [columnId]: value }));
     };
 
-    // Returns ALL board IDs linked to a board_relation column (array)
     const getRelatedBoardIds = (columnId) => {
         const column = getColumnMetadata(columnId);
         if (!column || !column.settings_str) return [];
         try {
             const settings = JSON.parse(column.settings_str);
-            // boardIds is always an array in Monday's settings_str
             return settings.boardIds && settings.boardIds.length > 0 ? settings.boardIds.map(String) : [];
         } catch (e) {
-            console.error("Error parsing board_relation settings:", e);
             return [];
         }
     };
 
     const loadRelationLookup = async (columnId, relatedBoardIds) => {
-        // Only close OTHER open dropdowns — do NOT wipe their items/users cache.
-        // The items cache is what lets each trigger display its selected value name.
         setRelationLookups((prev) => {
-            const next = { ...prev };
-            Object.keys(next).forEach((key) => {
-                if (key !== columnId && next[key].isOpen) {
-                    next[key] = { ...next[key], isOpen: false };
-                }
+            const n = { ...prev };
+            Object.keys(n).forEach((k) => {
+                if (k !== columnId && n[k].isOpen) n[k] = { ...n[k], isOpen: false };
             });
-            return next;
+            return n;
         });
         setPeopleLookups((prev) => {
-            const next = { ...prev };
-            Object.keys(next).forEach((key) => {
-                if (next[key].isOpen) next[key] = { ...next[key], isOpen: false };
+            const n = { ...prev };
+            Object.keys(n).forEach((k) => {
+                if (n[k].isOpen) n[k] = { ...n[k], isOpen: false };
             });
-            return next;
+            return n;
         });
         setRelationLookups((prev) => ({ ...prev, [columnId]: { ...prev[columnId], loading: true, isOpen: true } }));
         try {
-            // Fetch from ALL linked boards in parallel
             const result = await retrieveMultipleBoardItems(relatedBoardIds);
             if (result.success) {
                 setRelationLookups((prev) => ({
                     ...prev,
                     [columnId]: {
-                        items: result.items, // items tagged with boardId + boardName
+                        items: result.items,
                         loading: false,
                         searchTerm: "",
                         isOpen: true,
                         boardNames: result.boardNames,
                         isMultiBoard: relatedBoardIds.length > 1,
-                        partialError: result.error, // some boards may have failed
+                        partialError: result.error,
                     },
                 }));
             } else {
-                setRelationLookups((prev) => ({
-                    ...prev,
-                    [columnId]: { items: [], loading: false, searchTerm: "", isOpen: true, error: result.error },
-                }));
+                setRelationLookups((prev) => ({ ...prev, [columnId]: { items: [], loading: false, searchTerm: "", isOpen: true, error: result.error } }));
             }
         } catch (error) {
-            setRelationLookups((prev) => ({
-                ...prev,
-                [columnId]: { items: [], loading: false, searchTerm: "", isOpen: true, error: error.message },
-            }));
+            setRelationLookups((prev) => ({ ...prev, [columnId]: { items: [], loading: false, searchTerm: "", isOpen: true, error: error.message } }));
         }
     };
 
@@ -711,10 +712,7 @@ const App = () => {
                     },
                 }));
             } catch (error) {
-                setRelationLookups((prev) => ({
-                    ...prev,
-                    [columnId]: { ...prev[columnId], items: [], loading: false, error: error.message },
-                }));
+                setRelationLookups((prev) => ({ ...prev, [columnId]: { ...prev[columnId], items: [], loading: false, error: error.message } }));
             }
         }, 500);
     };
@@ -722,39 +720,27 @@ const App = () => {
     const closeRelationLookup = (columnId) => {
         setRelationLookups((prev) => ({ ...prev, [columnId]: { ...prev[columnId], isOpen: false, searchTerm: "" } }));
     };
-    /*
-    const selectRelationItem = (columnId, itemId, itemName) => {
-        handleFieldChange(columnId, itemId);
-        setRelationLookups((prev) => ({ ...prev, [columnId]: { ...prev[columnId], isOpen: false } }));
-    };
-    */
 
     const loadPeopleLookup = async (columnId) => {
-        // Only close OTHER open dropdowns — do NOT wipe their items/users cache.
         setRelationLookups((prev) => {
-            const next = { ...prev };
-            Object.keys(next).forEach((key) => {
-                if (next[key].isOpen) next[key] = { ...next[key], isOpen: false };
+            const n = { ...prev };
+            Object.keys(n).forEach((k) => {
+                if (n[k].isOpen) n[k] = { ...n[k], isOpen: false };
             });
-            return next;
+            return n;
         });
         setPeopleLookups((prev) => {
-            const next = { ...prev };
-            Object.keys(next).forEach((key) => {
-                if (key !== columnId && next[key].isOpen) {
-                    next[key] = { ...next[key], isOpen: false };
-                }
+            const n = { ...prev };
+            Object.keys(n).forEach((k) => {
+                if (k !== columnId && n[k].isOpen) n[k] = { ...n[k], isOpen: false };
             });
-            return next;
+            return n;
         });
         setPeopleLookups((prev) => ({ ...prev, [columnId]: { ...prev[columnId], loading: true, isOpen: true } }));
         try {
             const result = await getAllUsers();
-            if (result.success) {
-                setPeopleLookups((prev) => ({ ...prev, [columnId]: { users: result.users, loading: false, searchTerm: "", isOpen: true } }));
-            } else {
-                setPeopleLookups((prev) => ({ ...prev, [columnId]: { users: [], loading: false, searchTerm: "", isOpen: true, error: result.error } }));
-            }
+            if (result.success) setPeopleLookups((prev) => ({ ...prev, [columnId]: { users: result.users, loading: false, searchTerm: "", isOpen: true } }));
+            else setPeopleLookups((prev) => ({ ...prev, [columnId]: { users: [], loading: false, searchTerm: "", isOpen: true, error: result.error } }));
         } catch (error) {
             setPeopleLookups((prev) => ({ ...prev, [columnId]: { users: [], loading: false, searchTerm: "", isOpen: true, error: error.message } }));
         }
@@ -788,24 +774,6 @@ const App = () => {
     const closePeopleLookup = (columnId) => {
         setPeopleLookups((prev) => ({ ...prev, [columnId]: { ...prev[columnId], isOpen: false, searchTerm: "" } }));
     };
-    /*
-    const togglePeopleSelection = (columnId, userId) => {
-        const currentValue = formData[columnId] || [];
-        const userIdNum = parseInt(userId);
-        const newValue = currentValue.includes(userIdNum) ? currentValue.filter((id) => id !== userIdNum) : [...currentValue, userIdNum];
-        handleFieldChange(columnId, newValue);
-    };
-
-    const clearRelationSelection = (columnId, e) => {
-        e.stopPropagation();
-        handleFieldChange(columnId, "");
-    };
-
-    const clearPeopleSelection = (columnId, e) => {
-        e.stopPropagation();
-        handleFieldChange(columnId, []);
-    };
-    */
 
     const toggleSection = (sectionId) => {
         setCollapsedSections((prev) => ({ ...prev, [sectionId]: !prev[sectionId] }));
@@ -820,11 +788,7 @@ const App = () => {
             const settings = JSON.parse(column.settings_str);
             const labels = settings.labels || {};
             const labelsColors = settings.labels_colors || {};
-            return Object.keys(labels).map((index) => ({
-                index,
-                label: labels[index],
-                color: labelsColors[index]?.color || "#ccc",
-            }));
+            return Object.keys(labels).map((index) => ({ index, label: labels[index], color: labelsColors[index]?.color || "#ccc" }));
         } catch (e) {
             return [];
         }
@@ -841,18 +805,14 @@ const App = () => {
         }
     };
 
+    // =============================================================
+    // RENDER FIELD
+    // =============================================================
     const renderField = (field) => {
         const value = formData[field.columnId] !== undefined ? formData[field.columnId] : "";
         const columnMetadata = getColumnMetadata(field.columnId);
 
-        const inputStyle = {
-            padding: "8px 12px",
-            width: "100%",
-            borderRadius: "4px",
-            border: "1px solid #ccc",
-            fontSize: "14px",
-            fontFamily: "inherit",
-        };
+        const inputStyle = { padding: "8px 12px", width: "100%", borderRadius: "4px", border: "1px solid #ccc", fontSize: "14px", fontFamily: "inherit" };
 
         switch (field.type) {
             case "status": {
@@ -868,7 +828,6 @@ const App = () => {
                     </select>
                 );
             }
-
             case "dropdown": {
                 const labels = getDropdownLabels(field.columnId);
                 const dropdownValue = Array.isArray(value) ? value : value ? [value] : [];
@@ -916,20 +875,14 @@ const App = () => {
                 const selectedItems = Array.isArray(formData[field.columnId]) ? formData[field.columnId] : [];
                 const lookup = (field.type === "people" ? peopleLookups : relationLookups)[field.columnId] || {};
                 const isOpen = lookup.isOpen || false;
-
                 return (
                     <div className="relation-lookup-container">
-                        {/* --- TRIGGER AREA (Showing Pills) --- */}
                         <div
                             className={`relation-lookup-trigger ${isOpen ? "open" : ""}`}
                             onClick={() => {
                                 if (!isOpen) {
-                                    if (field.type === "people") {
-                                        loadPeopleLookup(field.columnId);
-                                    } else {
-                                        const relatedBoardIds = getRelatedBoardIds(field.columnId);
-                                        loadRelationLookup(field.columnId, relatedBoardIds);
-                                    }
+                                    if (field.type === "people") loadPeopleLookup(field.columnId);
+                                    else loadRelationLookup(field.columnId, getRelatedBoardIds(field.columnId));
                                 }
                             }}
                         >
@@ -939,10 +892,12 @@ const App = () => {
                                         <RecordPill
                                             key={item.id || idx}
                                             label={item.name || `ID: ${item.id || item}`}
-                                            onRemove={() => {
-                                                const newValue = selectedItems.filter((_, i) => i !== idx);
-                                                handleFieldChange(field.columnId, newValue);
-                                            }}
+                                            onRemove={() =>
+                                                handleFieldChange(
+                                                    field.columnId,
+                                                    selectedItems.filter((_, i) => i !== idx),
+                                                )
+                                            }
                                         />
                                     ))
                                 ) : (
@@ -951,8 +906,6 @@ const App = () => {
                             </div>
                             <span className="relation-lookup-trigger-icon">{isOpen ? "▲" : "▼"}</span>
                         </div>
-
-                        {/* --- DROPDOWN AREA (The "Rest of JSX") --- */}
                         {isOpen && (
                             <div className="relation-lookup-dropdown">
                                 <div className="relation-lookup-header">
@@ -978,17 +931,12 @@ const App = () => {
                                         Close
                                     </button>
                                 </div>
-
                                 <div className="relation-lookup-results">
                                     {lookup.loading && <div className="relation-lookup-loading">Loading...</div>}
-
                                     {!lookup.loading && lookup.error && <div className="relation-lookup-error">{lookup.error}</div>}
-
                                     {!lookup.loading && ((!lookup.users && !lookup.items) || lookup.users?.length === 0 || lookup.items?.length === 0) && (
                                         <div className="relation-lookup-empty">No results found</div>
                                     )}
-
-                                    {/* Rendering People Results */}
                                     {field.type === "people" &&
                                         !lookup.loading &&
                                         lookup.users?.map((user) => {
@@ -999,10 +947,12 @@ const App = () => {
                                                     className={`relation-lookup-item people-item ${isSelected ? "selected" : ""}`}
                                                     onClick={(e) => {
                                                         e.stopPropagation();
-                                                        const newValue = isSelected
-                                                            ? selectedItems.filter((i) => parseInt(i.id) !== parseInt(user.id))
-                                                            : [...selectedItems, { id: parseInt(user.id), name: user.name }];
-                                                        handleFieldChange(field.columnId, newValue);
+                                                        handleFieldChange(
+                                                            field.columnId,
+                                                            isSelected
+                                                                ? selectedItems.filter((i) => parseInt(i.id) !== parseInt(user.id))
+                                                                : [...selectedItems, { id: parseInt(user.id), name: user.name }],
+                                                        );
                                                     }}
                                                 >
                                                     <input type="checkbox" checked={isSelected} readOnly />
@@ -1010,8 +960,6 @@ const App = () => {
                                                 </div>
                                             );
                                         })}
-
-                                    {/* Rendering Board Relation Results */}
                                     {field.type === "board_relation" &&
                                         !lookup.loading &&
                                         lookup.items?.map((item) => {
@@ -1022,10 +970,12 @@ const App = () => {
                                                     className={`relation-lookup-item ${isSelected ? "selected" : ""}`}
                                                     onClick={(e) => {
                                                         e.stopPropagation();
-                                                        const newValue = isSelected
-                                                            ? selectedItems.filter((i) => String(i.id) !== String(item.id))
-                                                            : [...selectedItems, { id: item.id, name: item.name }];
-                                                        handleFieldChange(field.columnId, newValue);
+                                                        handleFieldChange(
+                                                            field.columnId,
+                                                            isSelected
+                                                                ? selectedItems.filter((i) => String(i.id) !== String(item.id))
+                                                                : [...selectedItems, { id: item.id, name: item.name }],
+                                                        );
                                                     }}
                                                 >
                                                     <div className="relation-lookup-item-name">{item.name}</div>
@@ -1039,7 +989,6 @@ const App = () => {
                     </div>
                 );
             }
-
             case "email":
                 return (
                     <input
@@ -1050,8 +999,6 @@ const App = () => {
                         style={inputStyle}
                     />
                 );
-
-            // PHONE:
             case "phone":
                 return <PhoneInput columnId={field.columnId} value={value} onChange={handleFieldChange} label={field.label} />;
             case "name":
@@ -1132,12 +1079,16 @@ const App = () => {
                     </div>
                 );
             }
-
-            case "file": {
-                const fileValue = formData[field.columnId];
-                const isUpdate = formAction === "update";
-                return <FileUpload columnId={field.columnId} value={fileValue} onChange={handleFieldChange} field={field} isUpdate={isUpdate} />;
-            }
+            case "file":
+                return (
+                    <FileUpload
+                        columnId={field.columnId}
+                        value={formData[field.columnId]}
+                        onChange={handleFieldChange}
+                        field={field}
+                        isUpdate={formAction === "update"}
+                    />
+                );
             case "doc":
                 return (
                     <input
@@ -1162,27 +1113,26 @@ const App = () => {
     };
 
     // =============================================================
-    // FORMAT COLUMN VALUE FOR API (shared by create and update)
+    // FORMAT COLUMN VALUE FOR API
     // =============================================================
     const formatColumnValue = (columnId, value, columnMeta) => {
         switch (columnMeta.type) {
             case "status": {
-                const statusIndex = parseInt(value);
-                return !isNaN(statusIndex) ? { index: statusIndex } : null;
+                const i = parseInt(value);
+                return !isNaN(i) ? { index: i } : null;
             }
             case "dropdown": {
-                const ids = Array.isArray(value) ? value : [value];
-                const validIds = ids.filter((id) => id !== "" && id !== null).map((id) => parseInt(id));
-                return validIds.length > 0 ? { ids: validIds } : null;
+                const ids = (Array.isArray(value) ? value : [value]).filter((id) => id !== "" && id !== null).map((id) => parseInt(id));
+                return ids.length > 0 ? { ids } : null;
             }
             case "people": {
                 const people = Array.isArray(value) ? value : [];
-                const validIds = people.map((p) => (typeof p === "object" ? p.id : p)).filter((id) => !!id);
+                const validIds = people.map((p) => (typeof p === "object" ? p.id : p)).filter(Boolean);
                 return validIds.length > 0 ? { personsAndTeams: validIds.map((id) => ({ id: parseInt(id), kind: "person" })) } : null;
             }
             case "board_relation": {
                 const relations = Array.isArray(value) ? value : [];
-                const validIds = relations.map((r) => (typeof r === "object" ? r.id : r)).filter((id) => !!id);
+                const validIds = relations.map((r) => (typeof r === "object" ? r.id : r)).filter(Boolean);
                 return validIds.length > 0 ? { item_ids: validIds.map((id) => parseInt(id)) } : null;
             }
             case "date":
@@ -1195,63 +1145,42 @@ const App = () => {
             case "email":
                 return String(value).trim() !== "" ? { email: String(value).trim(), text: String(value).trim() } : null;
             case "phone": {
-                // value is { phone: "...", countryShortName: "..." }
-                const phoneObj = value && typeof value === "object" ? value : null;
-                if (!phoneObj || !phoneObj.phone || String(phoneObj.phone).trim() === "") return null;
-                const cleanPhone = String(phoneObj.phone).replace(/[\s\-().]/g, "");
-                return { phone: cleanPhone, countryShortName: phoneObj.countryShortName || "US" };
+                const p = value && typeof value === "object" ? value : null;
+                if (!p || !p.phone || !String(p.phone).trim()) return null;
+                return { phone: String(p.phone).replace(/[\s\-().]/g, ""), countryShortName: p.countryShortName || "US" };
             }
             case "link": {
-                const linkObj = typeof value === "object" && value !== null ? value : { url: String(value).trim(), text: String(value).trim() };
-                const url = (linkObj.url || "").trim();
+                const l = typeof value === "object" && value !== null ? value : { url: String(value).trim(), text: String(value).trim() };
+                const url = (l.url || "").trim();
                 if (!url) return null;
                 const fullUrl = /^https?:\/\//i.test(url) ? url : `https://${url}`;
-                return { url: fullUrl, text: linkObj.text || fullUrl };
+                return { url: fullUrl, text: l.text || fullUrl };
             }
-
             case "checkbox":
                 return { checked: value === true || value === "true" || value === "v" ? "true" : "false" };
-
             default:
                 return String(value);
         }
     };
 
     const uploadPendingFiles = async (itemId, recordValues, isUpdate = false) => {
-        console.log("Upload pending files");
         const results = [];
         for (const columnId of Object.keys(recordValues)) {
             if (columnId === "name") continue;
             const columnMeta = getColumnMetadata(columnId);
             if (!columnMeta || columnMeta.type !== "file") continue;
-
             const fileValue = recordValues[columnId];
             const filesToUpload = isUpdate ? fileValue?.newFiles || [] : Array.isArray(fileValue) ? fileValue : [];
-
             for (const file of filesToUpload) {
                 try {
-                    // monday.com add_file_to_column requires multipart — use the SDK's file upload
-                    const mutation = `
-                        mutation ($itemId: ID!, $columnId: String!, $file: File!) {
-                            add_file_to_column(item_id: $itemId, column_id: $columnId, file: $file) {
-                                id
-                            }
-                        }
-                    `;
-                    const response = await monday.api(mutation, {
-                        variables: {
-                            itemId: String(itemId),
-                            columnId,
-                            file,
-                        },
-                    });
-                    if (response.data?.add_file_to_column?.id) {
-                        results.push({ success: true, file: file.name });
-                    } else {
-                        results.push({ success: false, file: file.name, error: "Upload returned no ID" });
-                    }
+                    const mutation = `mutation ($itemId: ID!, $columnId: String!, $file: File!) { add_file_to_column(item_id: $itemId, column_id: $columnId, file: $file) { id } }`;
+                    const response = await monday.api(mutation, { variables: { itemId: String(itemId), columnId, file } });
+                    results.push(
+                        response.data?.add_file_to_column?.id
+                            ? { success: true, file: file.name }
+                            : { success: false, file: file.name, error: "Upload returned no ID" },
+                    );
                 } catch (err) {
-                    console.error(`File upload failed for ${file.name}:`, err);
                     results.push({ success: false, file: file.name, error: err.message });
                 }
             }
@@ -1261,56 +1190,36 @@ const App = () => {
 
     const createItem = async (recordValues) => {
         try {
-            const itemName = recordValues.name || "New Item";
+            const itemName = recordValues.name; //|| "New Item";
             const columnValues = {};
             Object.keys(recordValues).forEach((columnId) => {
                 if (columnId === "name") return;
-
                 const value = recordValues[columnId];
                 const columnMeta = getColumnMetadata(columnId);
-                if (!columnMeta) return;
-                if (columnMeta && columnMeta.type === "file") return; // handled separately via uploadPendingFiles
-
+                if (!columnMeta || columnMeta.type === "file") return;
                 const isEmpty =
                     value === "" || value === null || value === undefined || (typeof value === "object" && !Array.isArray(value) && value.phone === "");
                 if (isEmpty) return;
                 const formatted = formatColumnValue(columnId, value, columnMeta);
                 if (formatted !== null) columnValues[columnId] = formatted;
             });
-
-            const mutation = `mutation($boardId: ID!, $itemName: String!, $columnValues: JSON!) {
-                create_item(board_id: $boardId item_name: $itemName column_values: $columnValues) { id name }
-            }`;
-            const variables = { boardId, itemName, columnValues: JSON.stringify(columnValues) };
-            const response = await monday.api(mutation, { variables });
-
+            const mutation = `mutation($boardId: ID!, $itemName: String!, $columnValues: JSON!) { create_item(board_id: $boardId item_name: $itemName column_values: $columnValues) { id name } }`;
+            const response = await monday.api(mutation, { variables: { boardId, itemName, columnValues: JSON.stringify(columnValues) } });
             if (response.data && response.data.create_item) {
                 const createdItem = response.data.create_item;
-
-                // Phase 2: upload any staged files to their respective file columns
-                const fileUploadResults = await uploadPendingFiles(createdItem.id, recordValues);
-                const fileErrors = fileUploadResults.filter((r) => !r.success);
-
-                if (fileErrors.length === 0) {
-                    monday.execute("notice", {
-                        message: `Item "${createdItem.name}" created successfully!`,
-                        type: "success",
-                        timeout: 5000,
-                    });
-                } else {
-                    monday.execute("notice", {
-                        message: `Item "${createdItem.name}" created, but ${fileErrors.length} file upload(s) failed.`,
-                        type: "error",
-                        timeout: 7000,
-                    });
-                }
+                const fileErrors = (await uploadPendingFiles(createdItem.id, recordValues)).filter((r) => !r.success);
+                monday.execute("notice", {
+                    message:
+                        fileErrors.length === 0
+                            ? `Item "${createdItem.name}" created successfully!`
+                            : `Item "${createdItem.name}" created, but ${fileErrors.length} file upload(s) failed.`,
+                    type: fileErrors.length === 0 ? "success" : "error",
+                    timeout: 5000,
+                });
                 setFormData({});
                 return { success: true, item: createdItem };
-            } else {
-                throw new Error("Failed to create item");
-            }
+            } else throw new Error("Failed to create item");
         } catch (error) {
-            console.error("Error creating item:", error);
             monday.execute("notice", { message: `Error creating item: ${error.message}`, type: "error", timeout: 5000 });
             return { success: false, error: error.message };
         }
@@ -1323,136 +1232,103 @@ const App = () => {
                 if (columnId === "name") return;
                 const value = recordValues[columnId];
                 const columnMeta = getColumnMetadata(columnId);
-                if (!columnMeta) return;
-                if (columnMeta && columnMeta.type === "file") return; // handled separately via uploadPendingFiles
-
+                if (!columnMeta || columnMeta.type === "file") return;
                 const isEmpty =
                     value === "" || value === null || value === undefined || (typeof value === "object" && !Array.isArray(value) && value.phone === "");
                 if (isEmpty) return;
                 const formatted = formatColumnValue(columnId, value, columnMeta);
                 if (formatted !== null) columnValues[columnId] = formatted;
             });
-
-            const mutation = `mutation($boardId: ID!, $itemId: ID!, $columnValues: JSON!) {
-                change_multiple_column_values(board_id: $boardId item_id: $itemId column_values: $columnValues create_labels_if_missing: false) { id name }
-            }`;
-            const variables = { boardId, itemId, columnValues: JSON.stringify(columnValues) };
-            const response = await monday.api(mutation, { variables });
-
+            const mutation = `mutation($boardId: ID!, $itemId: ID!, $columnValues: JSON!) { change_multiple_column_values(board_id: $boardId item_id: $itemId column_values: $columnValues create_labels_if_missing: false) { id name } }`;
+            const response = await monday.api(mutation, { variables: { boardId, itemId, columnValues: JSON.stringify(columnValues) } });
             if (response.data && response.data.change_multiple_column_values) {
                 const updatedItem = response.data.change_multiple_column_values;
-
-                // Upload any new files the user added in update mode
-                const fileUploadResults = await uploadPendingFiles(itemId, recordValues, true /* isUpdate */);
-                const fileErrors = fileUploadResults.filter((r) => !r.success);
-
-                if (fileErrors.length === 0) {
-                    monday.execute("notice", { message: `Item updated successfully!`, type: "success", timeout: 5000 });
-                } else {
-                    monday.execute("notice", {
-                        message: `Item updated, but ${fileErrors.length} file upload(s) failed.`,
-                        type: "error",
-                        timeout: 7000,
-                    });
-                }
+                const fileErrors = (await uploadPendingFiles(itemId, recordValues, true)).filter((r) => !r.success);
+                monday.execute("notice", {
+                    message: fileErrors.length === 0 ? "Item updated successfully!" : `Item updated, but ${fileErrors.length} file upload(s) failed.`,
+                    type: fileErrors.length === 0 ? "success" : "error",
+                    timeout: 5000,
+                });
                 return { success: true, item: updatedItem };
-            } else {
-                throw new Error("Failed to update item");
-            }
+            } else throw new Error("Failed to update item");
         } catch (error) {
-            console.error("Error updating item:", error);
             monday.execute("notice", { message: `Error updating item: ${error.message}`, type: "error", timeout: 5000 });
             return { success: false, error: error.message };
         }
     };
 
-    const validateForm = (formData, validatedSections, formAction) => {
-        const errors = [];
-        const allFields = [];
-        validatedSections.forEach((section) => {
-            if (section.sectionData && section.sectionData.fields) {
-                section.sectionData.fields.forEach((field) => {
-                    if (field.isValid && !field.duplicate) allFields.push(field);
-                });
-            }
-        });
-
-        // Required fields
-        allFields
-            .filter((f) => f.isDefault === "true")
-            .forEach((field) => {
-                const value = formData[field.columnId];
-                const isEmpty = value === undefined || value === null || value === "" || (Array.isArray(value) && value.length === 0);
-                if (isEmpty) errors.push({ type: "REQUIRED_FIELD", field: field.label, columnId: field.columnId, message: `${field.label} is required` });
-            });
-
-        // Type validation
-        allFields.forEach((field) => {
-            const value = formData[field.columnId];
-            if (value === undefined || value === null || value === "") return;
-            const columnMeta = getColumnMetadata(field.columnId);
-            if (!columnMeta) return;
-            if (columnMeta.type === "numbers" && isNaN(value)) {
-                errors.push({ type: "INVALID_TYPE", field: field.label, columnId: field.columnId, message: `${field.label} must be a valid number` });
-            }
-            if (columnMeta.type === "date" && value && !(new Date(value) instanceof Date && !isNaN(new Date(value)))) {
-                errors.push({ type: "INVALID_DATE", field: field.label, columnId: field.columnId, message: `${field.label} must be a valid date` });
-            }
-        });
-
-        return { isValid: errors.length === 0, errors };
-    };
+    // =============================================================
+    // FORM VALIDATION
+    // Uses validateVisibleFields() from fieldValidation.js which:
+    //   1. Skips fields hidden by fieldVisibilityMap
+    //   2. Checks isRequired on visible fields
+    //   3. Checks validityRules (min/max/range) on visible fields
+    // The old validateForm() is replaced by this single call.
+    // =============================================================
 
     const displayValidationErrors = (errors) => {
         if (errors.length === 0) return;
-        const errorsByType = {};
+        // Group by type for a cleaner notice message
+        const byType = {};
         errors.forEach((e) => {
-            if (!errorsByType[e.type]) errorsByType[e.type] = [];
-            errorsByType[e.type].push(e);
+            if (!byType[e.type]) byType[e.type] = [];
+            byType[e.type].push(e);
         });
-        let errorMessage = "Please fix the following errors:\n\n";
-        Object.keys(errorsByType).forEach((type) => {
-            const label = type === "REQUIRED_FIELD" ? "Required fields:" : "Invalid values:";
-            errorMessage += `${label}\n`;
-            errorsByType[type].forEach((err) => {
-                errorMessage += `  • ${err.message}\n`;
+        let msg = "Please fix the following errors:\n\n";
+        const typeLabel = (t) => (t === "REQUIRED_FIELD" ? "Required fields:" : "Invalid values:");
+        Object.keys(byType).forEach((type) => {
+            msg += `${typeLabel(type)}\n`;
+            byType[type].forEach((err) => {
+                msg += `  • ${err.message}\n`;
             });
-            errorMessage += "\n";
+            msg += "\n";
         });
-        monday.execute("notice", { message: errorMessage, type: "error", timeout: 10000 });
+        monday.execute("notice", { message: msg, type: "error", timeout: 10000 });
     };
 
     const handleFormSubmit = async (e) => {
         e.preventDefault();
-        const validation = validateForm(formData, validatedSections, formAction);
-        if (!validation.isValid) {
-            displayValidationErrors(validation.errors);
-            if (validation.errors.length > 0) {
-                const firstErrorField = validation.errors[0].columnId;
-                const fieldElement = document.querySelector(`[data-column-id="${firstErrorField}"]`);
-                if (fieldElement) fieldElement.scrollIntoView({ behavior: "smooth", block: "center" });
-            }
+
+        // validateVisibleFields skips hidden fields automatically via fieldVisibilityMap
+        const errors = validateVisibleFields(visibleSections, formData, fieldVisibilityMap);
+        console.log("Errors after validation ", errors);
+        if (errors.length > 0) {
+            displayValidationErrors(errors);
+            // Scroll to the first offending field
+            const firstEl = document.querySelector(`[data-column-id="${errors[0].columnId}"]`);
+            if (firstEl) firstEl.scrollIntoView({ behavior: "smooth", block: "center" });
             return;
         }
-        if (formAction === "create") {
-            await createItem(formData);
-        } else if (formAction === "update" && selectedItemId) {
-            await updateItem(selectedItemId, formData);
-        }
+
+        if (formAction === "create") await createItem(formData);
+        else if (formAction === "update" && selectedItemId) await updateItem(selectedItemId, formData);
     };
 
+    // =============================================================
+    // LOAD FORM — renders only visibleSections (NEW)
+    // =============================================================
     const loadForm = () => {
-        console.log("VAlidated sections ", validatedSections);
-        const validSections = validatedSections.filter((section) => section.isFullyValid && section.fields);
-        console.log("VAlidated sections ", validSections);
+        // While profile is loading, show a subtle indicator rather than the form
+        // to prevent a flicker where a hidden section briefly appears.
+        if (userProfileLoading) {
+            return (
+                <div className="loading-state">
+                    <p>Loading your profile...</p>
+                </div>
+            );
+        }
+
+        const validSections = visibleSections.filter((section) => section.isFullyValid && section.fields);
+
         if (validSections.length === 0) {
             return (
                 <div className="error-box">
                     <h3>⚠️ Cannot Create Form</h3>
-                    <p>No valid sections found.</p>
+                    <p>No sections are available for your profile.</p>
                 </div>
             );
         }
+
         return (
             <div className="form-container">
                 {formAction === "update" && selectedItem && !isItemViewMode && (
@@ -1464,7 +1340,8 @@ const App = () => {
                 )}
                 <form onSubmit={handleFormSubmit}>
                     {validSections.map((section) => {
-                        const sectionId = section.id;
+                        const sectionId = section.sectionData?.id ?? section.id;
+                        const sectionTitle = section.sectionData?.title ?? section.title;
                         const isCollapsed = collapsedSections[sectionId] || false;
                         const validFields = section.fields.filter((f) => f.isValid === true && f.duplicate === false);
                         if (validFields.length === 0) return null;
@@ -1472,7 +1349,7 @@ const App = () => {
                             <div key={sectionId} className="section-container">
                                 <div className="section-header" onClick={() => toggleSection(sectionId)}>
                                     <h3>
-                                        {section.recordName}
+                                        {sectionTitle}
                                         <span className="field-count">
                                             ({validFields.length} field{validFields.length !== 1 ? "s" : ""})
                                         </span>
@@ -1482,16 +1359,24 @@ const App = () => {
                                 {!isCollapsed && (
                                     <div className="section-content">
                                         <div className="fields-grid">
-                                            {validFields.map((field) => (
-                                                <div key={field.id} className="field-wrapper" data-column-id={field.columnId}>
-                                                    <label className="field-label">
-                                                        {field.label}
-                                                        {field.isRequired === "true" && <span className="required-asterisk">*</span>}
-                                                    </label>
-                                                    {renderField(field)}
-                                                    <div className="field-type-hint">Type: {field.type}</div>
-                                                </div>
-                                            ))}
+                                            {validFields.map((field) => {
+                                                // fieldVisibilityMap: true = show, false = hide
+                                                // Missing key defaults to true (fail-open)
+                                                const fieldVisible = fieldVisibilityMap[field.columnId] !== false;
+                                                if (!fieldVisible) return null;
+
+                                                const isRequired = field.isRequired === true || field.isRequired === "true";
+                                                return (
+                                                    <div key={field.columnId} className="field-wrapper" data-column-id={field.columnId}>
+                                                        <label className="field-label">
+                                                            {field.label}
+                                                            {isRequired && <span className="required-asterisk">*</span>}
+                                                        </label>
+                                                        {renderField(field)}
+                                                        <div className="field-type-hint">Type: {field.type}</div>
+                                                    </div>
+                                                );
+                                            })}
                                         </div>
                                     </div>
                                 )}
@@ -1510,7 +1395,15 @@ const App = () => {
             </div>
         );
     };
+
+    // =============================================================
+    // DERIVED FLAGS
+    // =============================================================
     const isItemViewMode = Boolean(itemId);
+
+    // =============================================================
+    // RENDER
+    // =============================================================
     return (
         <div className="App">
             {!boardId ? (
@@ -1530,10 +1423,9 @@ const App = () => {
                         </option>
                         {boards.map((b) => {
                             const ws = b.workspace && b.workspace.name ? b.workspace.name : "";
-                            const label = ws ? `${b.name} (${ws})` : b.name;
                             return (
                                 <option key={b.id} value={b.id}>
-                                    {label}
+                                    {ws ? `${b.name} (${ws})` : b.name}
                                 </option>
                             );
                         })}
@@ -1562,181 +1454,133 @@ const App = () => {
                     )}
                     {!pageLayoutLoading && !pageLayoutError && validatedSections.length > 0 && (
                         <div>
-                            <div>
-                                {/* ── ITEM VIEW: no action selector, no record picker ── */}
-                                {isItemViewMode && (
-                                    <div>
-                                        {/* Loading state while item data is being fetched */}
-                                        {!selectedItem && (
-                                            <div className="loading-state">
-                                                <p>Loading item...</p>
-                                            </div>
-                                        )}
-                                        {/* Once item is loaded, render the form directly */}
-                                        {selectedItem && loadForm()}
-                                    </div>
-                                )}
-
-                                {/* ── BOARD VIEW: existing create / update flow ── */}
-                                {!isItemViewMode && (
-                                    <div>
-                                        <div className="action-selector">
-                                            <h3>Select Action:</h3>
-                                            <div className="radio-group">
-                                                <label className="radio-label">
-                                                    <input
-                                                        type="radio"
-                                                        name="formAction"
-                                                        value="create"
-                                                        checked={formAction === "create"}
-                                                        onChange={handleFormActionChange}
-                                                    />
-                                                    <span>Create New Record</span>
-                                                </label>
-                                                <label className="radio-label">
-                                                    <input
-                                                        type="radio"
-                                                        name="formAction"
-                                                        value="update"
-                                                        checked={formAction === "update"}
-                                                        onChange={handleFormActionChange}
-                                                    />
-                                                    <span>Update Existing Record</span>
-                                                </label>
-                                            </div>
+                            {/* ── ITEM VIEW ── */}
+                            {isItemViewMode && (
+                                <div>
+                                    {!selectedItem && (
+                                        <div className="loading-state">
+                                            <p>Loading item...</p>
                                         </div>
+                                    )}
+                                    {selectedItem && loadForm()}
+                                </div>
+                            )}
 
-                                        {formAction === "update" && (
-                                            <div className="item-selector">
-                                                <h3>Select Item to Update:</h3>
-                                                <div className="relation-lookup-container" style={{ maxWidth: "500px" }}>
-                                                    {/* Lookup Trigger */}
-                                                    <div
-                                                        className={`relation-lookup-trigger ${mainItemLookup.isOpen ? "open" : ""}`}
-                                                        onClick={() => {
-                                                            if (!mainItemLookup.isOpen) handleMainItemLookupSearch("");
-                                                        }}
-                                                    >
-                                                        <span className={`relation-lookup-trigger-text ${!selectedItem ? "placeholder" : ""}`}>
-                                                            {selectedItem ? selectedItem.name : "-- Search for a record --"}
-                                                        </span>
+                            {/* ── BOARD VIEW ── */}
+                            {!isItemViewMode && (
+                                <div>
+                                    <div className="action-selector">
+                                        <h3>Select Action:</h3>
+                                        <div className="radio-group">
+                                            <label className="radio-label">
+                                                <input
+                                                    type="radio"
+                                                    name="formAction"
+                                                    value="create"
+                                                    checked={formAction === "create"}
+                                                    onChange={handleFormActionChange}
+                                                />
+                                                <span>Create New Record</span>
+                                            </label>
+                                            <label className="radio-label">
+                                                <input
+                                                    type="radio"
+                                                    name="formAction"
+                                                    value="update"
+                                                    checked={formAction === "update"}
+                                                    onChange={handleFormActionChange}
+                                                />
+                                                <span>Update Existing Record</span>
+                                            </label>
+                                        </div>
+                                    </div>
 
-                                                        {selectedItemId && (
+                                    {formAction === "update" && (
+                                        <div className="item-selector">
+                                            <h3>Select Item to Update:</h3>
+                                            <div className="relation-lookup-container" style={{ maxWidth: "500px" }}>
+                                                <div
+                                                    className={`relation-lookup-trigger ${mainItemLookup.isOpen ? "open" : ""}`}
+                                                    onClick={() => {
+                                                        if (!mainItemLookup.isOpen) handleMainItemLookupSearch("");
+                                                    }}
+                                                >
+                                                    <span className={`relation-lookup-trigger-text ${!selectedItem ? "placeholder" : ""}`}>
+                                                        {selectedItem ? selectedItem.name : "-- Search for a record --"}
+                                                    </span>
+                                                    {selectedItemId && (
+                                                        <button
+                                                            className="relation-lookup-clear-btn"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setSelectedItemId("");
+                                                                setSelectedItem(null);
+                                                                setFormData({});
+                                                            }}
+                                                            title="Clear selection"
+                                                            type="button"
+                                                        >
+                                                            ×
+                                                        </button>
+                                                    )}
+                                                    <span className="relation-lookup-trigger-icon">{mainItemLookup.isOpen ? "▲" : "▼"}</span>
+                                                </div>
+                                                {mainItemLookup.isOpen && (
+                                                    <div className="relation-lookup-dropdown">
+                                                        <div className="relation-lookup-header">
+                                                            <input
+                                                                type="text"
+                                                                className="relation-lookup-search"
+                                                                placeholder="Type to search items..."
+                                                                value={mainItemLookup.searchTerm || ""}
+                                                                onChange={(e) => handleMainItemLookupSearch(e.target.value)}
+                                                                autoFocus
+                                                            />
                                                             <button
-                                                                className="relation-lookup-clear-btn"
+                                                                className="relation-lookup-close-btn"
                                                                 onClick={(e) => {
                                                                     e.stopPropagation();
-                                                                    setSelectedItemId("");
-                                                                    setSelectedItem(null);
-                                                                    setFormData({});
+                                                                    setMainItemLookup((prev) => ({ ...prev, isOpen: false }));
                                                                 }}
-                                                                title="Clear selection"
-                                                                type="button"
                                                             >
-                                                                ×
+                                                                Close
                                                             </button>
-                                                        )}
-                                                        <span className="relation-lookup-trigger-icon">{mainItemLookup.isOpen ? "▲" : "▼"}</span>
-                                                    </div>
-
-                                                    {/* Dropdown Panel */}
-                                                    {mainItemLookup.isOpen && (
-                                                        <div className="relation-lookup-dropdown">
-                                                            <div className="relation-lookup-header">
-                                                                <input
-                                                                    type="text"
-                                                                    className="relation-lookup-search"
-                                                                    placeholder="Type to search items..."
-                                                                    value={mainItemLookup.searchTerm || ""}
-                                                                    onChange={(e) => handleMainItemLookupSearch(e.target.value)}
-                                                                    autoFocus
-                                                                />
-                                                                <button
-                                                                    className="relation-lookup-close-btn"
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation();
-                                                                        setMainItemLookup((prev) => ({ ...prev, isOpen: false }));
-                                                                    }}
-                                                                >
-                                                                    Close
-                                                                </button>
-                                                            </div>
-
-                                                            <div className="relation-lookup-results main-item-lookup-results">
-                                                                {mainItemLookup.loading && <div className="relation-lookup-loading">Searching board...</div>}
-
-                                                                {!mainItemLookup.loading && mainItemLookup.items && mainItemLookup.items.length === 0 && (
-                                                                    <div className="relation-lookup-empty">No records match your search</div>
-                                                                )}
-
-                                                                {!mainItemLookup.loading &&
-                                                                    mainItemLookup.items &&
-                                                                    mainItemLookup.items.length > 0 &&
-                                                                    mainItemLookup.items.map((item) => (
-                                                                        <div
-                                                                            key={item.id}
-                                                                            className={`relation-lookup-item ${String(selectedItemId) === String(item.id) ? "selected" : ""}`}
-                                                                            onClick={() => selectUpdateItem(item)}
-                                                                        >
-                                                                            <div className="relation-lookup-item-name">{item.name}</div>
-                                                                            <div className="relation-lookup-item-id">ID: {item.id}</div>
-                                                                        </div>
-                                                                    ))}
-                                                            </div>
-
-                                                            <div className="relation-lookup-footer">
-                                                                {mainItemLookup.items?.length || 0} records found in {selectedBoardName}
-                                                            </div>
                                                         </div>
-                                                    )}
-                                                </div>
-                                                {itemsError && (
-                                                    <div className="error-inline">
-                                                        <p>{itemsError}</p>
+                                                        <div className="relation-lookup-results main-item-lookup-results">
+                                                            {mainItemLookup.loading && <div className="relation-lookup-loading">Searching board...</div>}
+                                                            {!mainItemLookup.loading && mainItemLookup.items && mainItemLookup.items.length === 0 && (
+                                                                <div className="relation-lookup-empty">No records match your search</div>
+                                                            )}
+                                                            {!mainItemLookup.loading &&
+                                                                mainItemLookup.items &&
+                                                                mainItemLookup.items.length > 0 &&
+                                                                mainItemLookup.items.map((item) => (
+                                                                    <div
+                                                                        key={item.id}
+                                                                        className={`relation-lookup-item ${String(selectedItemId) === String(item.id) ? "selected" : ""}`}
+                                                                        onClick={() => selectUpdateItem(item)}
+                                                                    >
+                                                                        <div className="relation-lookup-item-name">{item.name}</div>
+                                                                        <div className="relation-lookup-item-id">ID: {item.id}</div>
+                                                                    </div>
+                                                                ))}
+                                                        </div>
+                                                        <div className="relation-lookup-footer">
+                                                            {mainItemLookup.items?.length || 0} records found in {selectedBoardName}
+                                                        </div>
                                                     </div>
                                                 )}
                                             </div>
-                                        )}
-
-                                        {(formAction === "create" || (formAction === "update" && selectedItemId)) && loadForm()}
-                                    </div>
-                                )}
-                            </div>
-                            {/*
-                            <div className="action-selector">
-
-                                <h3>Select Action:</h3>
-                                <div className="radio-group">
-                                    <label className="radio-label">
-                                        <input
-                                            type="radio"
-                                            name="formAction"
-                                            value="create"
-                                            checked={formAction === "create"}
-                                            onChange={handleFormActionChange}
-                                        />
-                                        <span>Create New Record</span>
-                                    </label>
-                                    <label className="radio-label">
-                                        <input
-                                            type="radio"
-                                            name="formAction"
-                                            value="update"
-                                            checked={formAction === "update"}
-                                            onChange={handleFormActionChange}
-                                        />
-                                        <span>Update Existing Record</span>
-                                    </label>
+                                            {itemsError && (
+                                                <div className="error-inline">
+                                                    <p>{itemsError}</p>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                    {(formAction === "create" || (formAction === "update" && selectedItemId)) && loadForm()}
                                 </div>
-
-                            </div>
-
-
-                            {formAction === "update" && (
-
                             )}
-                            {(formAction === "create" || (formAction === "update" && selectedItemId)) && loadForm()}
-                            */}
                         </div>
                     )}
                 </div>
