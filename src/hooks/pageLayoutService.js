@@ -2,30 +2,27 @@ import mondaySdk from "monday-sdk-js";
 import { useState, useEffect } from "react";
 import { METADATA_BOARD_ID as METADATA_BOARD_ID_FROM_FILE } from "../metadataConfig";
 import { getBoardColumns } from "./boardMetadata";
+import { getChildBoards } from "./boardMetadata";
 
 const monday = mondaySdk();
 const PAGELAYOUTSECTIONS_BOARD_ID = METADATA_BOARD_ID_FROM_FILE;
 const PAGELAYOUT_COL_TITLE_BOARDID = "Board Id";
-const PAGELAYOUT_COL_TITLE_SECTIONS = "Sections"; // ← the column storing the sections JSON array
+const PAGELAYOUT_COL_TITLE_SECTIONS = "Sections";
+const PAGELAYOUT_COL_TITLE_CHILD_BOARDS = "Child Boards";
 const LIMIT = 500;
 
-// Utility to ensure integers
+// ─── Utilities ────────────────────────────────────────────────────────────────
+
 function int(val) {
     const parsed = parseInt(val, 10);
     return isNaN(parsed) ? 0 : parsed;
 }
 
-/**
- * Helper to fetch column ID for a given column title in a board.
- */
 async function getBoardColumnIdsByTitles(boardId, titles) {
     const query = `
         query {
             boards(ids: [${boardId}]) {
-                columns {
-                    id
-                    title
-                }
+                columns { id title }
             }
         }
     `;
@@ -33,30 +30,20 @@ async function getBoardColumnIdsByTitles(boardId, titles) {
     const columns = response?.data?.boards?.[0]?.columns || [];
     const titleToIdMap = {};
     columns.forEach((col) => {
-        if (titles.includes(col.title)) {
-            titleToIdMap[col.title] = col.id;
-        }
+        if (titles.includes(col.title)) titleToIdMap[col.title] = col.id;
     });
     return titleToIdMap;
 }
 
+// ─── Sections parsing ─────────────────────────────────────────────────────────
+
 /**
  * Parse the Sections column value from a monday long_text / text column.
- *
- * monday long_text columns return:
- *   cv.text  = the raw stored string (most reliable)
- *   cv.value = '{"text":"[...]","changed_at":"..."}' (wrapper object)
- *
- * The stored string is a JSON array of section objects:
- *   [{ Id, Title, fields: [...], rules, order }, ...]
- *
- * @param {Object} cv - column_value object { id, text, value, column }
- * @returns {Array|null} Parsed sections array or null on failure
+ * Handles cv.text (raw string), cv.value (wrapper object), or cv.value as direct array.
  */
 function parseSectionsColumnValue(cv) {
     if (!cv) return null;
 
-    // Strategy 1: cv.text is the raw stored string
     const rawText = cv.text?.trim();
     if (rawText && rawText.startsWith("[")) {
         try {
@@ -65,7 +52,6 @@ function parseSectionsColumnValue(cv) {
         } catch (_) {}
     }
 
-    // Strategy 2: cv.value is the monday wrapper object { text: "[...]", changed_at: "..." }
     if (cv.value) {
         try {
             const outer = JSON.parse(cv.value);
@@ -74,8 +60,6 @@ function parseSectionsColumnValue(cv) {
                 if (Array.isArray(inner)) return inner;
             }
         } catch (_) {}
-
-        // Strategy 3: cv.value itself is the array string (no wrapper)
         try {
             const direct = JSON.parse(cv.value);
             if (Array.isArray(direct)) return direct;
@@ -86,35 +70,27 @@ function parseSectionsColumnValue(cv) {
 }
 
 /**
- * Validate sections parsed from the Sections column against the target board's columns.
- *
- * NEW STRUCTURE (one PLS record, Sections column holds):
- *   [
- *     { Id: "sec1", Title: "Sec 1", fields: [{columnId, type, isRequired}, ...], rules: {}, order: "1" },
- *     { Id: "sec2", Title: "Sec 2", fields: [...], rules: {}, order: "2" },
- *     ...
- *   ]
- *
- * Returns validatedSections in the same shape the rest of the app expects:
- *   [{
- *     recordId,       // the PLS monday item id
- *     recordName,     // the PLS monday item name
- *     sectionData: {  // mirrors old sectionData shape used in App.jsx
- *       id, title, fields: [{ columnId, type, isRequired, label, isValid, duplicate, ... }]
- *     },
- *     fields,         // same array (convenience reference)
- *     isValid,
- *     isFullyValid,
- *     hasInvalidFields,
- *     hasDuplicateFields,
- *   }]
+ * Parse a raw column value into a plain string for child board / sections columns.
+ * Handles both { sections: [...] } wrapper and bare array / object stored in text/value.
  */
+function parseRawColumnText(cv) {
+    if (!cv) return null;
+    const rawText = cv.text?.trim();
+    if (rawText) return rawText;
+    if (cv.value) {
+        try {
+            const outer = JSON.parse(cv.value);
+            if (outer && typeof outer.text === "string") return outer.text.trim();
+        } catch (_) {}
+    }
+    return null;
+}
+
+// ─── Sections validation ──────────────────────────────────────────────────────
+
 async function checkPageLayoutColumnValidity(plsRecord, boardId) {
-    console.log("Pls record ", plsRecord);
+    console.log("[PageLayoutService] Validating sections for record:", plsRecord?.id);
     try {
-        // Step 1: Get board's actual column metadata
-        const plsRecordId = plsRecord?.id ?? null;
-        const plsRecordName = plsRecord.name ?? null;
         const boardColumnsResult = await getBoardColumns(boardId);
 
         if (!boardColumnsResult?.success || !Array.isArray(boardColumnsResult?.columns)) {
@@ -129,8 +105,9 @@ async function checkPageLayoutColumnValidity(plsRecord, boardId) {
         const boardColumnMetadataMap = new Map(boardColumns.map((col) => [col.id, col.title]));
         const validColumnIds = new Set(boardColumns.map((col) => col.id));
 
-        // Step 2: Find and parse the Sections column from the PLS record
-        const sectionsCV = plsRecord.column_values.find((cv) => cv.column && cv.column.title === PAGELAYOUT_COL_TITLE_SECTIONS);
+        const sectionsCV = plsRecord.column_values.find(
+            (cv) => cv.column && cv.column.title === PAGELAYOUT_COL_TITLE_SECTIONS
+        );
 
         if (!sectionsCV) {
             return {
@@ -139,14 +116,8 @@ async function checkPageLayoutColumnValidity(plsRecord, boardId) {
                 validatedSections: [],
             };
         }
-        console.log("Raw sections ", sectionsCV);
-        console.log("Raw sections text ", sectionsCV?.text);
-        console.log("Raw sections value = ", sectionsCV?.value);
-        const jsonObject = JSON.parse(sectionsCV?.text ?? null);
 
-        console.log("Raw sections value = ", jsonObject);
         const rawSections = parseSectionsColumnValue(sectionsCV);
-        console.log("Raw sections ", rawSections);
         if (!rawSections) {
             return {
                 success: false,
@@ -155,7 +126,7 @@ async function checkPageLayoutColumnValidity(plsRecord, boardId) {
             };
         }
 
-        // Step 3: Build a columnId usage map across ALL sections (for cross-section duplicate detection)
+        // Build cross-section duplicate map
         const columnIdUsageMap = {};
         rawSections.forEach((section) => {
             (section.fields || []).forEach((field) => {
@@ -165,7 +136,6 @@ async function checkPageLayoutColumnValidity(plsRecord, boardId) {
             });
         });
 
-        // Step 4: Sort sections by order, then validate each one
         const sortedSections = [...rawSections].sort((a, b) => {
             const oA = parseInt(a.order ?? a.Order ?? "0", 10);
             const oB = parseInt(b.order ?? b.Order ?? "0", 10);
@@ -174,7 +144,6 @@ async function checkPageLayoutColumnValidity(plsRecord, boardId) {
 
         const validatedSections = sortedSections.map((section) => {
             const rawFields = section.fields || [];
-
             if (rawFields.length === 0) {
                 return {
                     ...section,
@@ -186,22 +155,19 @@ async function checkPageLayoutColumnValidity(plsRecord, boardId) {
                 };
             }
 
-            // Enrich each field with label, validity, duplicate flag
             const enrichedFields = rawFields.map((field) => {
                 const columnId = field.columnId;
-
-                // Use board column title as label (new schema has no stored label)
                 const label = boardColumnMetadataMap.get(columnId) || columnId;
-
                 const isValidColumnId = validColumnIds.has(columnId);
                 const isDuplicate = columnIdUsageMap[columnId] > 1;
-
                 return {
                     ...field,
                     label,
                     isValid: isValidColumnId,
                     duplicate: isDuplicate,
-                    validationError: !isValidColumnId ? `Column '${columnId}' does not exist in board` : null,
+                    validationError: !isValidColumnId
+                        ? `Column '${columnId}' does not exist in board`
+                        : null,
                 };
             });
 
@@ -210,7 +176,7 @@ async function checkPageLayoutColumnValidity(plsRecord, boardId) {
 
             return {
                 ...section,
-                fields: enrichedFields, // convenience reference
+                fields: enrichedFields,
                 isValid: true,
                 isFullyValid: !hasInvalidFields && !hasDuplicateFields,
                 hasInvalidFields,
@@ -218,21 +184,16 @@ async function checkPageLayoutColumnValidity(plsRecord, boardId) {
             };
         });
 
-        const summary = {
-            totalSections: validatedSections.length,
-            fullyValidSections: validatedSections.filter((s) => s.isFullyValid).length,
-        };
-
-        console.log("[PageLayoutService] Validated sections", { validatedSections, summary });
-
         return {
             success: true,
             error: null,
             validatedSections,
-            validationSummary: summary,
+            validationSummary: {
+                totalSections: validatedSections.length,
+                fullyValidSections: validatedSections.filter((s) => s.isFullyValid).length,
+            },
         };
     } catch (error) {
-        console.error("[PageLayoutService] checkPageLayoutColumnValidity error:", error);
         return {
             success: false,
             error: error.message || "Validation failed",
@@ -241,14 +202,197 @@ async function checkPageLayoutColumnValidity(plsRecord, boardId) {
     }
 }
 
+// ─── Child Boards validation ──────────────────────────────────────────────────
+
+/**
+ * Validate child board configuration stored in the "Child Boards" column.
+ *
+ * STORED JSON SHAPE (array):
+ *   [
+ *     {
+ *       "boardId":  "5026698327",          // child board id
+ *       "label":    "Contacts",             // display label for the related list
+ *       "columnId": "board_relation_mm0pb871", // column on the child board that links back to parent
+ *       "columns":  ["name", "status", ...]    // columns to display in the related list table
+ *     },
+ *     ...
+ *   ]
+ *
+ * VALIDATION STEPS:
+ *   1. Parse the "Child Boards" column JSON from the PLS record.
+ *   2. Call getChildBoards(parentBoardId) to get the actual relationship map.
+ *      Returns children[]: { boardId, boardName, columnId, columnLabel }
+ *   3. For each configured child board: check that the (boardId + columnId) combination
+ *      exists in the real relationship map. Skip if not found.
+ *   4. For each validated child board: fetch its actual columns via getBoardColumns()
+ *      and cross-check the configured display columns. Skip columns that don't exist.
+ *
+ * RETURNS:
+ *   validatedChildBoards[]:
+ *   {
+ *     boardId:       string,   // child board id
+ *     boardName:     string,   // resolved from getChildBoards
+ *     label:         string,   // from config (or boardName as fallback)
+ *     columnId:      string,   // relation column on child board linking to parent
+ *     columns:       ValidatedColumn[],  // only columns that actually exist
+ *     skippedColumns: string[], // column ids that were configured but don't exist
+ *   }
+ *
+ *   ValidatedColumn: { id: string, title: string, type: string }
+ */
+async function validateChildBoards(plsRecord, parentBoardId) {
+    console.log("[PageLayoutService] Validating child boards for parent:", parentBoardId);
+
+    // ── Step 1: Find and parse the "Child Boards" column ─────────────────────
+    const childBoardsCV = plsRecord.column_values.find(
+        (cv) => cv.column && cv.column.title === PAGELAYOUT_COL_TITLE_CHILD_BOARDS
+    );
+
+    const rawText = parseRawColumnText(childBoardsCV);
+    if (!rawText || !rawText.trim()) {
+        // No child boards configured — not an error, just nothing to show
+        console.log("[PageLayoutService] No child boards configured for this board.");
+        return { success: true, validatedChildBoards: [] };
+    }
+
+    let configuredChildBoards;
+    try {
+        configuredChildBoards = JSON.parse(rawText);
+        if (!Array.isArray(configuredChildBoards)) {
+            console.warn("[PageLayoutService] Child Boards JSON is not an array — skipping.");
+            return { success: true, validatedChildBoards: [] };
+        }
+    } catch (e) {
+        console.warn("[PageLayoutService] Could not parse Child Boards JSON:", e.message);
+        return { success: true, validatedChildBoards: [] };
+    }
+
+    if (configuredChildBoards.length === 0) {
+        return { success: true, validatedChildBoards: [] };
+    }
+
+    // ── Step 2: Get actual child board relationships ──────────────────────────
+    let actualChildren = [];
+    try {
+        const childResult = await getChildBoards(parentBoardId);
+        if (childResult.success) {
+            actualChildren = childResult.children || [];
+        } else {
+            console.warn("[PageLayoutService] getChildBoards failed:", childResult.error);
+            // Non-fatal: proceed with empty list (all boards will fail validation)
+        }
+    } catch (e) {
+        console.warn("[PageLayoutService] getChildBoards threw:", e.message);
+    }
+
+    // Build a lookup set: "boardId::columnId" → child entry
+    // This is the authoritative "does this relationship actually exist?" check.
+    const actualRelationshipMap = new Map();
+    actualChildren.forEach((child) => {
+        const key = `${child.boardId}::${child.columnId}`;
+        actualRelationshipMap.set(key, child);
+    });
+
+    // ── Step 3 + 4: Validate each configured child board ─────────────────────
+    // We may need to call getBoardColumns for multiple child boards.
+    // Deduplicate by boardId so we don't fetch the same board twice.
+    const boardColumnCache = new Map(); // boardId → { id, title, type }[]
+
+    const fetchChildBoardColumns = async (boardId) => {
+        if (boardColumnCache.has(boardId)) return boardColumnCache.get(boardId);
+        const result = await getBoardColumns(boardId);
+        const cols = result.success ? result.columns : [];
+        boardColumnCache.set(boardId, cols);
+        return cols;
+    };
+
+    const validatedChildBoards = [];
+
+    for (const config of configuredChildBoards) {
+        const { boardId, label, columnId, columns: configuredColumns = [] } = config;
+
+        if (!boardId || !columnId) {
+            console.warn("[PageLayoutService] Child board config missing boardId or columnId — skipping:", config);
+            continue;
+        }
+
+        // Step 3: Validate (boardId + columnId) combo against actual relationships
+        const relationshipKey = `${boardId}::${columnId}`;
+        const actualChild = actualRelationshipMap.get(relationshipKey);
+
+        if (!actualChild) {
+            console.warn(
+                `[PageLayoutService] Child board ${boardId} with columnId ${columnId} ` +
+                `not found in actual board relationships — skipping.`
+            );
+            continue;
+        }
+
+        // Step 4: Fetch the child board's actual columns and validate configured columns
+        const actualColumns = await fetchChildBoardColumns(boardId);
+        const actualColumnMap = new Map(actualColumns.map((c) => [c.id, c]));
+
+        // "name" is always the item name column — treat it as always valid
+        // (monday returns it in column_values but its id is literally "name")
+        const validColumns = [];
+        const skippedColumns = [];
+
+        for (const colId of configuredColumns) {
+            if (colId === "name") {
+                // "name" is the item name — always include it
+                validColumns.push({ id: "name", title: "Name", type: "name" });
+            } else if (actualColumnMap.has(colId)) {
+                const col = actualColumnMap.get(colId);
+                validColumns.push({ id: col.id, title: col.title, type: col.type });
+            } else {
+                console.warn(
+                    `[PageLayoutService] Column "${colId}" does not exist on child board ${boardId} — skipping column.`
+                );
+                skippedColumns.push(colId);
+            }
+        }
+
+        if (validColumns.length === 0) {
+            console.warn(
+                `[PageLayoutService] Child board ${boardId} has no valid display columns after validation — skipping.`
+            );
+            continue;
+        }
+
+        validatedChildBoards.push({
+            boardId,
+            boardName: actualChild.boardName,
+            label: label || actualChild.boardName,
+            columnId,                // relation column on child board that links to the parent
+            columns: validColumns,   // only the columns that actually exist
+            skippedColumns,          // informational — columns that were skipped
+        });
+    }
+
+    console.log(
+        `[PageLayoutService] Child board validation complete: ` +
+        `${validatedChildBoards.length}/${configuredChildBoards.length} valid.`
+    );
+
+    return { success: true, validatedChildBoards };
+}
+
+// ─── Main retrieval function ──────────────────────────────────────────────────
+
 /**
  * Retrieve and validate the page layout for a given board.
  *
  * Queries the PageLayoutSections board for the ONE record that matches boardId,
- * then parses + validates its Sections column JSON.
+ * then parses + validates:
+ *   (a) its Sections column JSON  → validatedSections
+ *   (b) its Child Boards column JSON → validatedChildBoards
  *
  * @param {string} boardId
- * @returns {Promise<{ success, error, items, validatedSections, validationSummary }>}
+ * @returns {Promise<{
+ *   success, error, items,
+ *   validatedSections, validationSummary,
+ *   validatedChildBoards
+ * }>}
  */
 export async function retrievePageLayoutInfoForBoard(boardId) {
     if (!boardId || !PAGELAYOUTSECTIONS_BOARD_ID) {
@@ -258,19 +402,24 @@ export async function retrievePageLayoutInfoForBoard(boardId) {
             items: [],
             validatedSections: [],
             validationSummary: null,
+            validatedChildBoards: [],
         };
     }
 
     try {
-        // Step 1: Resolve the column ID for the Board Id filter column
-        const colMap = await getBoardColumnIdsByTitles(PAGELAYOUTSECTIONS_BOARD_ID, [PAGELAYOUT_COL_TITLE_BOARDID]);
+        // Step 1: Resolve filter column ID
+        const colMap = await getBoardColumnIdsByTitles(PAGELAYOUTSECTIONS_BOARD_ID, [
+            PAGELAYOUT_COL_TITLE_BOARDID,
+        ]);
         const boardIdColId = colMap[PAGELAYOUT_COL_TITLE_BOARDID];
 
         if (!boardIdColId) {
-            throw new Error(`Filter column "${PAGELAYOUT_COL_TITLE_BOARDID}" not found in PageLayout board`);
+            throw new Error(
+                `Filter column "${PAGELAYOUT_COL_TITLE_BOARDID}" not found in PageLayout board`
+            );
         }
 
-        // Step 2: Query the PLS board — filter to the single record for this board
+        // Step 2: Fetch the PLS record for this board
         const query = `
             query {
                 boards(ids: [${PAGELAYOUTSECTIONS_BOARD_ID}]) {
@@ -303,7 +452,6 @@ export async function retrievePageLayoutInfoForBoard(boardId) {
         `;
 
         const response = await monday.api(query);
-
         if (response.errors) {
             throw new Error(response.errors[0]?.message || "GraphQL error");
         }
@@ -317,28 +465,34 @@ export async function retrievePageLayoutInfoForBoard(boardId) {
                 items: [],
                 validatedSections: [],
                 validationSummary: { totalSections: 0, fullyValidSections: 0 },
+                validatedChildBoards: [],
                 error: null,
             };
         }
 
-        // Step 3: Use the FIRST matching record (new model = one record per board)
-        // If somehow multiple records exist, log a warning but continue with the first.
         if (items.length > 1) {
-            console.warn(`[PageLayoutService] Expected 1 PLS record for board ${boardId}, found ${items.length}. Using first.`);
+            console.warn(
+                `[PageLayoutService] Expected 1 PLS record for board ${boardId}, ` +
+                `found ${items.length}. Using first.`
+            );
         }
         const plsRecord = items[0];
 
-        // Step 4: Validate and enrich sections from the Sections column JSON
-        const validationResult = await checkPageLayoutColumnValidity(plsRecord, boardId);
+        // Step 3: Validate sections (existing logic)
+        const [sectionsResult, childBoardsResult] = await Promise.all([
+            checkPageLayoutColumnValidity(plsRecord, boardId),
+            validateChildBoards(plsRecord, boardId),
+        ]);
 
-        if (!validationResult.success) {
-            console.warn("[PageLayoutService] Validation failed:", validationResult.error);
+        if (!sectionsResult.success) {
+            console.warn("[PageLayoutService] Section validation failed:", sectionsResult.error);
             return {
-                success: true, // data was fetched, validation just found issues
+                success: true,
                 items,
                 validatedSections: [],
                 validationSummary: null,
-                validationError: validationResult.error,
+                validatedChildBoards: childBoardsResult.validatedChildBoards || [],
+                validationError: sectionsResult.error,
                 error: null,
             };
         }
@@ -346,8 +500,9 @@ export async function retrievePageLayoutInfoForBoard(boardId) {
         return {
             success: true,
             items,
-            validatedSections: validationResult.validatedSections,
-            validationSummary: validationResult.validationSummary,
+            validatedSections: sectionsResult.validatedSections,
+            validationSummary: sectionsResult.validationSummary,
+            validatedChildBoards: childBoardsResult.validatedChildBoards || [],
             error: null,
         };
     } catch (error) {
@@ -358,22 +513,31 @@ export async function retrievePageLayoutInfoForBoard(boardId) {
             items: [],
             validatedSections: [],
             validationSummary: null,
+            validatedChildBoards: [],
         };
     }
 }
 
+// ─── React hook ───────────────────────────────────────────────────────────────
+
 /**
  * React hook — wraps retrievePageLayoutInfoForBoard with loading state.
- * API is unchanged so App.jsx requires no edits.
  *
- * Usage (unchanged in App.jsx):
- *   const { items, validatedSections, validationSummary, loading, error } = usePageLayoutInfo(boardId);
+ * NOW ALSO RETURNS: validatedChildBoards
+ *
+ * Usage in App.jsx:
+ *   const {
+ *     items, validatedSections, validationSummary,
+ *     validatedChildBoards,           ← NEW
+ *     loading, error
+ *   } = usePageLayoutInfo(boardId);
  */
 export function usePageLayoutInfo(boardId) {
     const [data, setData] = useState({
         items: [],
         validatedSections: [],
         validationSummary: null,
+        validatedChildBoards: [],   // ← NEW
         loading: true,
         error: null,
     });
@@ -384,6 +548,7 @@ export function usePageLayoutInfo(boardId) {
                 items: [],
                 validatedSections: [],
                 validationSummary: null,
+                validatedChildBoards: [],
                 loading: false,
                 error: null,
             });
@@ -398,6 +563,7 @@ export function usePageLayoutInfo(boardId) {
                     items: result.items || [],
                     validatedSections: result.validatedSections || [],
                     validationSummary: result.validationSummary || null,
+                    validatedChildBoards: result.validatedChildBoards || [],
                     loading: false,
                     error: result.success ? null : result.error,
                 });
@@ -407,6 +573,7 @@ export function usePageLayoutInfo(boardId) {
                     items: [],
                     validatedSections: [],
                     validationSummary: null,
+                    validatedChildBoards: [],
                     loading: false,
                     error: err.message || `Unknown error for board ${boardId}`,
                 });
@@ -415,3 +582,4 @@ export function usePageLayoutInfo(boardId) {
 
     return data;
 }
+// EOF marker

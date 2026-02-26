@@ -5,6 +5,7 @@ import mondaySdk from "monday-sdk-js";
 import "@vibe/core/tokens";
 import { useBoards } from "./hooks/useBoards";
 import { usePageLayoutInfo } from "./hooks/pageLayoutService";
+import RelatedLists from "./components/RelatedLists";
 import {
     retrieveBoardItems,
     retrieveItemById,
@@ -323,14 +324,14 @@ const App = () => {
     // ── Hooks (declared before any useEffect that references them) ──
     const { boards: boardsFromHook } = useBoards();
     const boards = boardsFromHook || [];
-    const { items, validatedSections, validationSummary, loading, error } = usePageLayoutInfo(boardId);
+    const { items, validatedSections, validationSummary, validatedChildBoards, loading, error } = usePageLayoutInfo(boardId);
     const pageLayoutLoading = loading;
     const pageLayoutError = error;
 
     // ── Derived: sections visible to this user ───────────────────
     // While userProfile is still loading (null) we don't filter yet — avoids
     // a flash of "no sections" before the profile arrives.
-    console.log('Run Filter visible sections ');
+    console.log("Run Filter visible sections ");
     const visibleSections =
         userProfile === null
             ? validatedSections // still loading — show all to avoid flicker
@@ -346,7 +347,7 @@ const App = () => {
     //
     // Two-pass algorithm handles chained dependencies (field A depends on
     // field B which itself has a visibility rule) without infinite loops.
-    console.log('Run compute field visiblity map ')
+    console.log("Run compute field visiblity map ");
     const fieldVisibilityMap = computeFieldVisibility(visibleSections, formData);
 
     // =============================================================
@@ -1319,6 +1320,9 @@ const App = () => {
         }
 
         const validSections = visibleSections.filter((section) => section.isFullyValid && section.fields);
+        // The active item id used for related lists
+        const activeItemId = itemId || selectedItemId || null;
+        const isUpdateMode = formAction === "update" && Boolean(activeItemId);
 
         if (validSections.length === 0) {
             return (
@@ -1392,6 +1396,7 @@ const App = () => {
                         </button>
                     </div>
                 </form>
+                {isUpdateMode && <RelatedLists validatedChildBoards={validatedChildBoards} parentItemId={activeItemId} />}
             </div>
         );
     };
