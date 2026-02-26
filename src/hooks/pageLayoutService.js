@@ -89,7 +89,7 @@ function parseRawColumnText(cv) {
 // ─── Sections validation ──────────────────────────────────────────────────────
 
 async function checkPageLayoutColumnValidity(plsRecord, boardId) {
-    console.log("[PageLayoutService] Validating sections for record:", plsRecord?.id);
+    //console.log("[PageLayoutService] Validating sections for record:", plsRecord?.id);
     try {
         const boardColumnsResult = await getBoardColumns(boardId);
 
@@ -105,9 +105,7 @@ async function checkPageLayoutColumnValidity(plsRecord, boardId) {
         const boardColumnMetadataMap = new Map(boardColumns.map((col) => [col.id, col.title]));
         const validColumnIds = new Set(boardColumns.map((col) => col.id));
 
-        const sectionsCV = plsRecord.column_values.find(
-            (cv) => cv.column && cv.column.title === PAGELAYOUT_COL_TITLE_SECTIONS
-        );
+        const sectionsCV = plsRecord.column_values.find((cv) => cv.column && cv.column.title === PAGELAYOUT_COL_TITLE_SECTIONS);
 
         if (!sectionsCV) {
             return {
@@ -165,9 +163,7 @@ async function checkPageLayoutColumnValidity(plsRecord, boardId) {
                     label,
                     isValid: isValidColumnId,
                     duplicate: isDuplicate,
-                    validationError: !isValidColumnId
-                        ? `Column '${columnId}' does not exist in board`
-                        : null,
+                    validationError: !isValidColumnId ? `Column '${columnId}' does not exist in board` : null,
                 };
             });
 
@@ -232,7 +228,7 @@ async function checkPageLayoutColumnValidity(plsRecord, boardId) {
  *   {
  *     boardId:       string,   // child board id
  *     boardName:     string,   // resolved from getChildBoards
- *     label:         string,   // from config (or boardName as fallback)
+ *     label:         string,   // from config (or boardName (column name) as fallback)
  *     columnId:      string,   // relation column on child board linking to parent
  *     columns:       ValidatedColumn[],  // only columns that actually exist
  *     skippedColumns: string[], // column ids that were configured but don't exist
@@ -244,10 +240,9 @@ async function validateChildBoards(plsRecord, parentBoardId) {
     console.log("[PageLayoutService] Validating child boards for parent:", parentBoardId);
 
     // ── Step 1: Find and parse the "Child Boards" column ─────────────────────
-    const childBoardsCV = plsRecord.column_values.find(
-        (cv) => cv.column && cv.column.title === PAGELAYOUT_COL_TITLE_CHILD_BOARDS
-    );
+    const childBoardsCV = plsRecord.column_values.find((cv) => cv.column && cv.column.title === PAGELAYOUT_COL_TITLE_CHILD_BOARDS);
 
+    console.log("[PageLayoutService] Validating child boards for parent metadata :", childBoardsCV);
     const rawText = parseRawColumnText(childBoardsCV);
     if (!rawText || !rawText.trim()) {
         // No child boards configured — not an error, just nothing to show
@@ -275,6 +270,7 @@ async function validateChildBoards(plsRecord, parentBoardId) {
     let actualChildren = [];
     try {
         const childResult = await getChildBoards(parentBoardId);
+        console.log("[PageLayoutService] Validating child boards fo actual ", childResult);
         if (childResult.success) {
             actualChildren = childResult.children || [];
         } else {
@@ -292,6 +288,8 @@ async function validateChildBoards(plsRecord, parentBoardId) {
         const key = `${child.boardId}::${child.columnId}`;
         actualRelationshipMap.set(key, child);
     });
+
+    console.log("[PageLayoutService] Validating child boards fo actual ", actualChildren);
 
     // ── Step 3 + 4: Validate each configured child board ─────────────────────
     // We may need to call getBoardColumns for multiple child boards.
@@ -321,10 +319,7 @@ async function validateChildBoards(plsRecord, parentBoardId) {
         const actualChild = actualRelationshipMap.get(relationshipKey);
 
         if (!actualChild) {
-            console.warn(
-                `[PageLayoutService] Child board ${boardId} with columnId ${columnId} ` +
-                `not found in actual board relationships — skipping.`
-            );
+            console.warn(`[PageLayoutService] Child board ${boardId} with columnId ${columnId} ` + `not found in actual board relationships — skipping.`);
             continue;
         }
 
@@ -345,34 +340,27 @@ async function validateChildBoards(plsRecord, parentBoardId) {
                 const col = actualColumnMap.get(colId);
                 validColumns.push({ id: col.id, title: col.title, type: col.type });
             } else {
-                console.warn(
-                    `[PageLayoutService] Column "${colId}" does not exist on child board ${boardId} — skipping column.`
-                );
+                console.warn(`[PageLayoutService] Column "${colId}" does not exist on child board ${boardId} — skipping column.`);
                 skippedColumns.push(colId);
             }
         }
 
         if (validColumns.length === 0) {
-            console.warn(
-                `[PageLayoutService] Child board ${boardId} has no valid display columns after validation — skipping.`
-            );
+            console.warn(`[PageLayoutService] Child board ${boardId} has no valid display columns after validation — skipping.`);
             continue;
         }
 
         validatedChildBoards.push({
             boardId,
             boardName: actualChild.boardName,
-            label: label || actualChild.boardName,
-            columnId,                // relation column on child board that links to the parent
-            columns: validColumns,   // only the columns that actually exist
-            skippedColumns,          // informational — columns that were skipped
+            label: label || `${actualChild.boardName} (${actualChild.columnLabel})`,
+            columnId, // relation column on child board that links to the parent
+            columns: validColumns, // only the columns that actually exist
+            skippedColumns, // informational — columns that were skipped
         });
     }
 
-    console.log(
-        `[PageLayoutService] Child board validation complete: ` +
-        `${validatedChildBoards.length}/${configuredChildBoards.length} valid.`
-    );
+    console.log(`[PageLayoutService] Child board validation complete: ` + `${validatedChildBoards.length}/${configuredChildBoards.length} valid.`);
 
     return { success: true, validatedChildBoards };
 }

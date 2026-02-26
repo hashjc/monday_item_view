@@ -19,7 +19,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from "react";
-import { fetchRelatedListRecords } from "./relatedListService";
+import { fetchRelatedListRecords } from "../hooks/relatedListService";
 
 // ─── RelatedListTable ─────────────────────────────────────────────────────────
 

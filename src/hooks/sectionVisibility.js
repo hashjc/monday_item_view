@@ -164,24 +164,22 @@ export function isSectionVisible(section, userProfile) {
     if (rulesConfig === null || rulesConfig === undefined) return true;
 
     let rulesList = [];
-    let criteria  = "ALL";
+    let criteria = "ALL";
 
     if (Array.isArray(rulesConfig)) {
         // Edge case: someone stored the conditions array directly as rules
         rulesList = rulesConfig;
-        criteria  = "ALL";
-
+        criteria = "ALL";
     } else if (typeof rulesConfig === "object") {
         // Primary shape: { conditions: [...], criteria: "ALL" | "ANY" | "1 AND (2 OR 3)" }
         if (Array.isArray(rulesConfig.conditions) && rulesConfig.conditions.length > 0) {
             rulesList = rulesConfig.conditions;
-            criteria  = rulesConfig.criteria ?? "ALL";
+            criteria = rulesConfig.criteria ?? "ALL";
 
-        // Legacy fallback: { rules: [...], criteria: "..." }
+            // Legacy fallback: { rules: [...], criteria: "..." }
         } else if (Array.isArray(rulesConfig.rules) && rulesConfig.rules.length > 0) {
             rulesList = rulesConfig.rules;
-            criteria  = rulesConfig.criteria ?? "ALL";
-
+            criteria = rulesConfig.criteria ?? "ALL";
         } else {
             // Empty object {} or object with no recognised array key → no rules → visible
             return true;
@@ -193,11 +191,12 @@ export function isSectionVisible(section, userProfile) {
 
     // Evaluate each individual rule
     const ruleResults = rulesList.map((rule) => evaluateSingleRule(rule, userProfile));
-
+    /*
     console.log(
         `[sectionVisibility] Section "${section.id}" — profile: "${normalise(userProfile)}"`,
         ruleResults.map((r, i) => `rule${i + 1}(${rulesList[i].operator} "${rulesList[i].value}"): ${r}`)
     );
+    */
 
     // Apply criteria
     const criteriaUpper = String(criteria).trim().toUpperCase();

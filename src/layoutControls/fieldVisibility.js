@@ -83,14 +83,11 @@ function readFieldValue(fieldId, formData) {
  */
 function evaluateOneCondition(condition, formData, allFieldIds, visibleFieldIds) {
     const { fieldId, operator, value } = condition;
-    console.log("Evaluate one condition, Field value ", condition);
+    //console.log("Evaluate one condition, Field value ", condition);
     // Guard 1: dependency field must exist in the layout
     // If the column was deleted after the rule was saved, skip the rule.
     if (!allFieldIds.has(fieldId)) {
-        console.warn(
-            `[fieldVisibility] Dependency "${fieldId}" not in layout — ` +
-            `skipping condition "${condition.id}"`
-        );
+        console.warn(`[fieldVisibility] Dependency "${fieldId}" not in layout — ` + `skipping condition "${condition.id}"`);
         return null;
     }
 
@@ -102,13 +99,13 @@ function evaluateOneCondition(condition, formData, allFieldIds, visibleFieldIds)
     }
 
     const fieldValue = readFieldValue(fieldId, formData);
-    const numVal     = typeof fieldValue === "number" ? fieldValue : null;
-    const cmpNum     = Number(value);
+    const numVal = typeof fieldValue === "number" ? fieldValue : null;
+    const cmpNum = Number(value);
 
     // Empty dependency value: only is_empty can pass; others skip (fail-open)
     if (fieldValue === null) {
         console.log("Field value ", fieldValue);
-        if (operator === "is_empty")     return true;
+        if (operator === "is_empty") return true;
         if (operator === "is_not_empty") return false;
         //return null; // empty dep → skip → show
     }
@@ -184,7 +181,7 @@ function evaluateOneCondition(condition, formData, allFieldIds, visibleFieldIds)
  */
 export function isFieldVisible(field, formData, allFieldIds, visibleFieldIds) {
     try {
-        console.log('Isfieldvisible method ', field);
+        //console.log('Isfieldvisible method ', field);
         // Step 1: explicit hard-hide flag
         if (field.isVisible === false) return false;
 
@@ -199,19 +196,16 @@ export function isFieldVisible(field, formData, allFieldIds, visibleFieldIds) {
         const fieldConditions = conditions.filter((c) => !c.source || c.source === "field");
         if (fieldConditions.length === 0) return true;
 
-        const results = fieldConditions.map((c) =>
-            evaluateOneCondition(c, formData, allFieldIds, visibleFieldIds)
-        );
+        const results = fieldConditions.map((c) => evaluateOneCondition(c, formData, allFieldIds, visibleFieldIds));
 
         // Remove skipped (null) results — if ALL are skipped, fail-open (show)
         const definite = results.filter((r) => r !== null);
         if (definite.length === 0) return true;
 
-        const criteria = String(rules.criteria || "ALL").trim().toUpperCase();
-        return criteria === "ANY"
-            ? definite.some(Boolean)
-            : definite.every(Boolean);
-
+        const criteria = String(rules.criteria || "ALL")
+            .trim()
+            .toUpperCase();
+        return criteria === "ANY" ? definite.some(Boolean) : definite.every(Boolean);
     } catch (err) {
         console.error("[fieldVisibility] Error for field:", field.columnId, err);
         return true; // fail-open on any error

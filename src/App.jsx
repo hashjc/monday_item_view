@@ -332,6 +332,7 @@ const App = () => {
     // While userProfile is still loading (null) we don't filter yet — avoids
     // a flash of "no sections" before the profile arrives.
     console.log("Run Filter visible sections ");
+    console.log("Run Filter visible sections  child boards ", validatedChildBoards);
     const visibleSections =
         userProfile === null
             ? validatedSections // still loading — show all to avoid flicker
@@ -347,7 +348,7 @@ const App = () => {
     //
     // Two-pass algorithm handles chained dependencies (field A depends on
     // field B which itself has a visibility rule) without infinite loops.
-    console.log("Run compute field visiblity map ");
+    //console.log("Run compute field visiblity map ");
     const fieldVisibilityMap = computeFieldVisibility(visibleSections, formData);
 
     // =============================================================
@@ -441,7 +442,7 @@ const App = () => {
         if (!validatedSections || validatedSections.length === 0) return;
         if (pageLayoutLoading) return;
 
-        console.log("[ItemView] Auto-loading item:", itemId);
+        //console.log("[ItemView] Auto-loading item:", itemId);
         setFormAction("update");
         handleItemSelection({ target: { value: itemId } });
         // eslint-disable-next-line react-hooks/exhaustive-deps
