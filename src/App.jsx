@@ -5,7 +5,6 @@ import mondaySdk from "monday-sdk-js";
 import "@vibe/core/tokens";
 import { useBoards } from "./hooks/useBoards";
 import { usePageLayoutInfo } from "./hooks/pageLayoutService";
-import RelatedLists from "./components/RelatedLists";
 import {
     retrieveBoardItems,
     retrieveItemById,
@@ -13,6 +12,7 @@ import {
     retrieveMultipleBoardItems,
     retrieveMultipleBoardItemsByItemName,
 } from "./hooks/items";
+import RelatedLists from "./components/RelatedLists";
 import { getBoardColumns } from "./hooks/boardMetadata";
 import { getAllUsers, searchUsersByNameOrEmail } from "./hooks/usersAndTeams";
 import { getUsersProfileName } from "./hooks/userProfiles";
@@ -331,8 +331,6 @@ const App = () => {
     // ── Derived: sections visible to this user ───────────────────
     // While userProfile is still loading (null) we don't filter yet — avoids
     // a flash of "no sections" before the profile arrives.
-    console.log("Run Filter visible sections ");
-    console.log("Run Filter visible sections  child boards ", validatedChildBoards);
     const visibleSections =
         userProfile === null
             ? validatedSections // still loading — show all to avoid flicker
@@ -348,8 +346,7 @@ const App = () => {
     //
     // Two-pass algorithm handles chained dependencies (field A depends on
     // field B which itself has a visibility rule) without infinite loops.
-    //console.log("Run compute field visiblity map ");
-    const fieldVisibilityMap = computeFieldVisibility(visibleSections, formData);
+    const fieldVisibilityMap = computeFieldVisibility(visibleSections, formData, boardColumns);
 
     // =============================================================
     // EFFECT: Get monday context (boardId, itemId)
@@ -442,7 +439,7 @@ const App = () => {
         if (!validatedSections || validatedSections.length === 0) return;
         if (pageLayoutLoading) return;
 
-        //console.log("[ItemView] Auto-loading item:", itemId);
+        console.log("[ItemView] Auto-loading item:", itemId);
         setFormAction("update");
         handleItemSelection({ target: { value: itemId } });
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -615,6 +612,26 @@ const App = () => {
                             };
                         } catch (_) {
                             itemData[col.id] = { existingFiles: [], newFiles: [] };
+                        }
+                    } else if (col.type === "timerange" || col.type === "timeline") {
+                        // timeline stores { from: "YYYY-MM-DD", to: "YYYY-MM-DD" }
+                        try {
+                            const parsed = JSON.parse(col.value);
+                            itemData[col.id] = {
+                                from: parsed.from || parsed.start_date || "",
+                                to: parsed.to || parsed.end_date || "",
+                            };
+                        } catch (_) {
+                            itemData[col.id] = { from: "", to: "" };
+                        }
+                    } else if (col.type === "doc") {
+                        // doc stores a files array; extract first doc's name + linkToFile
+                        try {
+                            const parsed = JSON.parse(col.value);
+                            const files = parsed.files || [];
+                            itemData[col.id] = files.length > 0 ? { name: files[0].name || "Monday Doc", linkToFile: files[0].linkToFile || null } : null;
+                        } catch (_) {
+                            itemData[col.id] = null;
                         }
                     } else {
                         itemData[col.id] = col.text || col.value || "";
@@ -1091,16 +1108,72 @@ const App = () => {
                         isUpdate={formAction === "update"}
                     />
                 );
-            case "doc":
+            case "timerange":
+            case "timeline": {
+                const tlVal = value && typeof value === "object" ? value : { from: "", to: "" };
                 return (
-                    <input
-                        type="text"
-                        value={value}
-                        onChange={(e) => handleFieldChange(field.columnId, e.target.value)}
-                        placeholder={`Enter ${field.label} (Complex type - simplified input)`}
-                        style={inputStyle}
-                    />
+                    <div className="timeline-input-wrapper">
+                        <div className="timeline-input-group">
+                            <label className="timeline-sub-label">From</label>
+                            <input
+                                type="date"
+                                value={tlVal.from || ""}
+                                onChange={(e) => handleFieldChange(field.columnId, { ...tlVal, from: e.target.value })}
+                                style={inputStyle}
+                            />
+                        </div>
+                        <span className="timeline-arrow">→</span>
+                        <div className="timeline-input-group">
+                            <label className="timeline-sub-label">To</label>
+                            <input
+                                type="date"
+                                value={tlVal.to || ""}
+                                min={tlVal.from || undefined}
+                                onChange={(e) => handleFieldChange(field.columnId, { ...tlVal, to: e.target.value })}
+                                style={inputStyle}
+                            />
+                        </div>
+                        {tlVal.from && tlVal.to && tlVal.to < tlVal.from && <div className="timeline-error">End date must be after start date</div>}
+                    </div>
                 );
+            }
+            case "doc": {
+                const docVal = value && typeof value === "object" ? value : null;
+                const docName = docVal?.name || null;
+                const docLink = docVal?.linkToFile || null;
+                return (
+                    <div className="doc-field-wrapper">
+                        <input
+                            type="text"
+                            value={docName || (formAction === "update" ? "(No document linked)" : "(Document can be linked after saving)")}
+                            readOnly
+                            disabled
+                            style={{ ...inputStyle, backgroundColor: "#f5f5f5", cursor: "not-allowed", color: "#888" }}
+                        />
+                        {docLink && (
+                            <button
+                                type="button"
+                                className="doc-open-btn"
+                                onClick={() => {
+                                    try {
+                                        monday.execute("openLinkInTab", { url: docLink });
+                                    } catch (_) {
+                                        window.open(docLink, "_blank", "noopener,noreferrer");
+                                    }
+                                }}
+                                title="Open document in monday.com"
+                            >
+                                Open Doc ↗
+                            </button>
+                        )}
+                        <div className="doc-field-note">
+                            {docLink
+                                ? "This document is managed in monday.com. Click 'Open Doc' to view or edit."
+                                : "Documents are created and managed directly in monday.com."}
+                        </div>
+                    </div>
+                );
+            }
             default:
                 return (
                     <input
@@ -1160,6 +1233,14 @@ const App = () => {
             }
             case "checkbox":
                 return { checked: value === true || value === "true" || value === "v" ? "true" : "false" };
+            case "timerange":
+            case "timeline": {
+                const tl = value && typeof value === "object" ? value : null;
+                if (!tl || !tl.from || !tl.to) return null;
+                return { from: tl.from, to: tl.to };
+            }
+            case "doc":
+                return null; // doc columns are never written via API
             default:
                 return String(value);
         }
@@ -1192,7 +1273,7 @@ const App = () => {
 
     const createItem = async (recordValues) => {
         try {
-            const itemName = recordValues.name; //|| "New Item";
+            const itemName = recordValues.name || "New Item";
             const columnValues = {};
             Object.keys(recordValues).forEach((columnId) => {
                 if (columnId === "name") return;
@@ -1293,7 +1374,7 @@ const App = () => {
 
         // validateVisibleFields skips hidden fields automatically via fieldVisibilityMap
         const errors = validateVisibleFields(visibleSections, formData, fieldVisibilityMap);
-        console.log("Errors after validation ", errors);
+
         if (errors.length > 0) {
             displayValidationErrors(errors);
             // Scroll to the first offending field
@@ -1321,9 +1402,6 @@ const App = () => {
         }
 
         const validSections = visibleSections.filter((section) => section.isFullyValid && section.fields);
-        // The active item id used for related lists
-        const activeItemId = itemId || selectedItemId || null;
-        const isUpdateMode = formAction === "update" && Boolean(activeItemId);
 
         if (validSections.length === 0) {
             return (
@@ -1333,6 +1411,10 @@ const App = () => {
                 </div>
             );
         }
+
+        // Active item id and update mode flag — used for RelatedLists
+        const activeItemId = itemId || selectedItemId || null;
+        const isUpdateMode = formAction === "update" && Boolean(activeItemId);
 
         return (
             <div className="form-container">
@@ -1392,11 +1474,14 @@ const App = () => {
                         <button type="submit" className="btn-primary">
                             {formAction === "create" ? "✓ Create Item" : "✓ Update Item"}
                         </button>
-                        <button type="button" onClick={() => setFormData({})} className="btn-secondary">
-                            Clear Form
-                        </button>
+                        {formAction === "create" && (
+                            <button type="button" onClick={() => setFormData({})} className="btn-secondary">
+                                Clear Form
+                            </button>
+                        )}
                     </div>
                 </form>
+                {/* Related Lists — shown in edit/update mode only */}
                 {isUpdateMode && <RelatedLists validatedChildBoards={validatedChildBoards} parentItemId={activeItemId} />}
             </div>
         );

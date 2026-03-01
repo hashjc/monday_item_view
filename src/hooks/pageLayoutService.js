@@ -10,7 +10,7 @@ const PAGELAYOUT_COL_TITLE_BOARDID = "Board Id";
 const PAGELAYOUT_COL_TITLE_SECTIONS = "Sections";
 const PAGELAYOUT_COL_TITLE_CHILD_BOARDS = "Child Boards";
 const LIMIT = 500;
-
+const DEFAULT_BOARD_COLS = [{ id: "name", title: "Name", type: "name" }];
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
 function int(val) {
@@ -308,7 +308,8 @@ async function validateChildBoards(plsRecord, parentBoardId) {
 
     for (const config of configuredChildBoards) {
         const { boardId, label, columnId, columns: configuredColumns = [] } = config;
-
+        console.log("Configured board ", config);
+        console.log("Configured board cols ", configuredColumns);
         if (!boardId || !columnId) {
             console.warn("[PageLayoutService] Child board config missing boardId or columnId — skipping:", config);
             continue;
@@ -329,7 +330,7 @@ async function validateChildBoards(plsRecord, parentBoardId) {
 
         // "name" is always the item name column — treat it as always valid
         // (monday returns it in column_values but its id is literally "name")
-        const validColumns = [];
+        let validColumns = [];
         const skippedColumns = [];
 
         for (const colId of configuredColumns) {
@@ -345,9 +346,22 @@ async function validateChildBoards(plsRecord, parentBoardId) {
             }
         }
 
-        if (validColumns.length === 0) {
-            console.warn(`[PageLayoutService] Child board ${boardId} has no valid display columns after validation — skipping.`);
-            continue;
+        const hasName = validColumns.some((c) => c.id === "name");
+
+        if (!hasName) {
+            // Add it if it was missing from config
+
+            validColumns.push({ id: "name", title: "Name", type: "name" });
+        }
+
+        // Reorder: Move 'name' to index 0
+
+        const nameCol = validColumns.find((c) => c.id === "name");
+        const otherCols = validColumns.filter((c) => c.id !== "name");
+        validColumns = [nameCol, ...otherCols];
+
+        if (validColumns.length <= 1 && configuredColumns.length === 0) {
+            validColumns = [...DEFAULT_BOARD_COLS];
         }
 
         validatedChildBoards.push({
@@ -360,7 +374,7 @@ async function validateChildBoards(plsRecord, parentBoardId) {
         });
     }
 
-    console.log(`[PageLayoutService] Child board validation complete: ` + `${validatedChildBoards.length}/${configuredChildBoards.length} valid.`);
+    //console.log(`[PageLayoutService] Child board validation complete: ` + `${validatedChildBoards.length}/${configuredChildBoards.length} valid.`);
 
     return { success: true, validatedChildBoards };
 }

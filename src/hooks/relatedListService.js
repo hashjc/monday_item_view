@@ -51,6 +51,7 @@ const RELATED_LIST_PAGE_SIZE = 200;
  * @returns {Promise<{ success: boolean, records: Object[], error: string|null }>}
  */
 export async function fetchRelatedListRecords(childBoard, parentItemId) {
+    console.log("Fetch related list records ", childBoard, " parent item id ", parentItemId);
     const { boardId, columnId: relationColumnId, columns: validColumns } = childBoard;
 
     if (!boardId || !relationColumnId || !parentItemId) {
@@ -87,11 +88,13 @@ export async function fetchRelatedListRecords(childBoard, parentItemId) {
                         query_params: {
                             rules: [{
                                 column_id: "${relationColumnId}",
-                                compare_value: ["${parentItemId}"],
+                                compare_value: [${parentItemId}],
                                 operator: any_of
-                            }]
+                            }],
+                            operator: and
                         }
                     ) {
+                        cursor
                         items {
                             id
                             name
@@ -109,10 +112,10 @@ export async function fetchRelatedListRecords(childBoard, parentItemId) {
         }
 
         const rawItems = response?.data?.boards?.[0]?.items_page?.items || [];
-
+        console.log('Related list raw items ', rawItems);
         // Build a set of column IDs we actually want to display (from validated config)
         const displayColumnIds = new Set(validColumns.map((c) => c.id));
-
+        console.log('displayColumnIds ', displayColumnIds);
         // Shape each raw item into a flat record for easy rendering
         const records = rawItems.map((item) => {
             // cells: only include columns that are in the validated display list
@@ -125,20 +128,20 @@ export async function fetchRelatedListRecords(childBoard, parentItemId) {
                 const colMeta = validColumns.find((c) => c.id === cv.id);
 
                 cells[cv.id] = {
-                    text:  resolveDisplayText(cv),
+                    text: resolveDisplayText(cv),
                     value: cv.value,
-                    type:  colMeta?.type  || cv.column?.type || "text",
+                    type: colMeta?.type || cv.column?.type || "text",
                     title: colMeta?.title || cv.column?.title || cv.id,
                 };
             });
 
             return {
-                id:    item.id,
-                name:  item.name,
+                id: item.id,
+                name: item.name,
                 cells,
             };
         });
-
+        console.log('Fetch related item records , records', records);
         return { success: true, records, error: null };
     } catch (error) {
         console.error("[relatedListService] fetchRelatedListRecords error:", error);
