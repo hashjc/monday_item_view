@@ -10,7 +10,7 @@ const PAGELAYOUT_COL_TITLE_BOARDID = "Board Id";
 const PAGELAYOUT_COL_TITLE_SECTIONS = "Sections";
 const PAGELAYOUT_COL_TITLE_CHILD_BOARDS = "Child Boards";
 const LIMIT = 500;
-const DEFAULT_BOARD_COLS = [{ id: "name", title: "Name", type: "name" }];
+
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
 function int(val) {
@@ -89,7 +89,7 @@ function parseRawColumnText(cv) {
 // ─── Sections validation ──────────────────────────────────────────────────────
 
 async function checkPageLayoutColumnValidity(plsRecord, boardId) {
-    //console.log("[PageLayoutService] Validating sections for record:", plsRecord?.id);
+    console.log("[PageLayoutService] Validating sections for record:", plsRecord?.id);
     try {
         const boardColumnsResult = await getBoardColumns(boardId);
 
@@ -228,7 +228,7 @@ async function checkPageLayoutColumnValidity(plsRecord, boardId) {
  *   {
  *     boardId:       string,   // child board id
  *     boardName:     string,   // resolved from getChildBoards
- *     label:         string,   // from config (or boardName (column name) as fallback)
+ *     label:         string,   // from config (or "Board Name (Column Label)" when null/empty)
  *     columnId:      string,   // relation column on child board linking to parent
  *     columns:       ValidatedColumn[],  // only columns that actually exist
  *     skippedColumns: string[], // column ids that were configured but don't exist
@@ -242,7 +242,6 @@ async function validateChildBoards(plsRecord, parentBoardId) {
     // ── Step 1: Find and parse the "Child Boards" column ─────────────────────
     const childBoardsCV = plsRecord.column_values.find((cv) => cv.column && cv.column.title === PAGELAYOUT_COL_TITLE_CHILD_BOARDS);
 
-    console.log("[PageLayoutService] Validating child boards for parent metadata :", childBoardsCV);
     const rawText = parseRawColumnText(childBoardsCV);
     if (!rawText || !rawText.trim()) {
         // No child boards configured — not an error, just nothing to show
@@ -270,7 +269,6 @@ async function validateChildBoards(plsRecord, parentBoardId) {
     let actualChildren = [];
     try {
         const childResult = await getChildBoards(parentBoardId);
-        console.log("[PageLayoutService] Validating child boards fo actual ", childResult);
         if (childResult.success) {
             actualChildren = childResult.children || [];
         } else {
@@ -289,8 +287,6 @@ async function validateChildBoards(plsRecord, parentBoardId) {
         actualRelationshipMap.set(key, child);
     });
 
-    console.log("[PageLayoutService] Validating child boards fo actual ", actualChildren);
-
     // ── Step 3 + 4: Validate each configured child board ─────────────────────
     // We may need to call getBoardColumns for multiple child boards.
     // Deduplicate by boardId so we don't fetch the same board twice.
@@ -308,8 +304,7 @@ async function validateChildBoards(plsRecord, parentBoardId) {
 
     for (const config of configuredChildBoards) {
         const { boardId, label, columnId, columns: configuredColumns = [] } = config;
-        console.log("Configured board ", config);
-        console.log("Configured board cols ", configuredColumns);
+
         if (!boardId || !columnId) {
             console.warn("[PageLayoutService] Child board config missing boardId or columnId — skipping:", config);
             continue;
@@ -330,7 +325,7 @@ async function validateChildBoards(plsRecord, parentBoardId) {
 
         // "name" is always the item name column — treat it as always valid
         // (monday returns it in column_values but its id is literally "name")
-        let validColumns = [];
+        const validColumns = [];
         const skippedColumns = [];
 
         for (const colId of configuredColumns) {
@@ -346,22 +341,9 @@ async function validateChildBoards(plsRecord, parentBoardId) {
             }
         }
 
-        const hasName = validColumns.some((c) => c.id === "name");
-
-        if (!hasName) {
-            // Add it if it was missing from config
-
-            validColumns.push({ id: "name", title: "Name", type: "name" });
-        }
-
-        // Reorder: Move 'name' to index 0
-
-        const nameCol = validColumns.find((c) => c.id === "name");
-        const otherCols = validColumns.filter((c) => c.id !== "name");
-        validColumns = [nameCol, ...otherCols];
-
-        if (validColumns.length <= 1 && configuredColumns.length === 0) {
-            validColumns = [...DEFAULT_BOARD_COLS];
+        if (validColumns.length === 0) {
+            console.warn(`[PageLayoutService] Child board ${boardId} has no valid display columns after validation — skipping.`);
+            continue;
         }
 
         validatedChildBoards.push({
@@ -374,7 +356,7 @@ async function validateChildBoards(plsRecord, parentBoardId) {
         });
     }
 
-    //console.log(`[PageLayoutService] Child board validation complete: ` + `${validatedChildBoards.length}/${configuredChildBoards.length} valid.`);
+    console.log(`[PageLayoutService] Child board validation complete: ` + `${validatedChildBoards.length}/${configuredChildBoards.length} valid.`);
 
     return { success: true, validatedChildBoards };
 }
@@ -410,15 +392,11 @@ export async function retrievePageLayoutInfoForBoard(boardId) {
 
     try {
         // Step 1: Resolve filter column ID
-        const colMap = await getBoardColumnIdsByTitles(PAGELAYOUTSECTIONS_BOARD_ID, [
-            PAGELAYOUT_COL_TITLE_BOARDID,
-        ]);
+        const colMap = await getBoardColumnIdsByTitles(PAGELAYOUTSECTIONS_BOARD_ID, [PAGELAYOUT_COL_TITLE_BOARDID]);
         const boardIdColId = colMap[PAGELAYOUT_COL_TITLE_BOARDID];
 
         if (!boardIdColId) {
-            throw new Error(
-                `Filter column "${PAGELAYOUT_COL_TITLE_BOARDID}" not found in PageLayout board`
-            );
+            throw new Error(`Filter column "${PAGELAYOUT_COL_TITLE_BOARDID}" not found in PageLayout board`);
         }
 
         // Step 2: Fetch the PLS record for this board
@@ -473,10 +451,7 @@ export async function retrievePageLayoutInfoForBoard(boardId) {
         }
 
         if (items.length > 1) {
-            console.warn(
-                `[PageLayoutService] Expected 1 PLS record for board ${boardId}, ` +
-                `found ${items.length}. Using first.`
-            );
+            console.warn(`[PageLayoutService] Expected 1 PLS record for board ${boardId}, ` + `found ${items.length}. Using first.`);
         }
         const plsRecord = items[0];
 
@@ -539,7 +514,8 @@ export function usePageLayoutInfo(boardId) {
         items: [],
         validatedSections: [],
         validationSummary: null,
-        validatedChildBoards: [],   // ← NEW
+        validatedChildBoards: [],
+        validationError: null, // set when PLS record exists but sections are invalid
         loading: true,
         error: null,
     });
@@ -551,6 +527,7 @@ export function usePageLayoutInfo(boardId) {
                 validatedSections: [],
                 validationSummary: null,
                 validatedChildBoards: [],
+                validationError: null,
                 loading: false,
                 error: null,
             });
@@ -566,6 +543,7 @@ export function usePageLayoutInfo(boardId) {
                     validatedSections: result.validatedSections || [],
                     validationSummary: result.validationSummary || null,
                     validatedChildBoards: result.validatedChildBoards || [],
+                    validationError: result.validationError || null,
                     loading: false,
                     error: result.success ? null : result.error,
                 });
@@ -576,6 +554,7 @@ export function usePageLayoutInfo(boardId) {
                     validatedSections: [],
                     validationSummary: null,
                     validatedChildBoards: [],
+                    validationError: null,
                     loading: false,
                     error: err.message || `Unknown error for board ${boardId}`,
                 });
