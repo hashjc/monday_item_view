@@ -540,7 +540,7 @@ const App = () => {
     // field B which itself has a visibility rule) without infinite loops.
     const fieldVisibilityMap = computeFieldVisibility(visibleSections, formData, boardColumns);
 
-    console.log('fieldVisibilityMap ===> ', fieldVisibilityMap);
+    console.log("fieldVisibilityMap ===> ", fieldVisibilityMap);
 
     // =============================================================
     // EFFECT: Get monday context (boardId, itemId)
@@ -1164,6 +1164,17 @@ const App = () => {
                                                     className={`relation-lookup-item people-item ${isSelected ? "selected" : ""}`}
                                                     onClick={(e) => {
                                                         e.stopPropagation();
+                                                        if (!isSelected) {
+                                                            const maxValues = field.maxValues ? parseInt(field.maxValues) : null;
+                                                            if (maxValues !== null && selectedItems.length >= maxValues) {
+                                                                monday.execute("notice", {
+                                                                    message: `Maximum ${maxValues} value${maxValues !== 1 ? "s" : ""} allowed for "${field.label}".`,
+                                                                    type: "error",
+                                                                    timeout: 4000,
+                                                                });
+                                                                return;
+                                                            }
+                                                        }
                                                         handleFieldChange(
                                                             field.columnId,
                                                             isSelected
@@ -1187,6 +1198,17 @@ const App = () => {
                                                     className={`relation-lookup-item ${isSelected ? "selected" : ""}`}
                                                     onClick={(e) => {
                                                         e.stopPropagation();
+                                                        if (!isSelected) {
+                                                            const maxValues = field.maxValues ? parseInt(field.maxValues) : null;
+                                                            if (maxValues !== null && selectedItems.length >= maxValues) {
+                                                                monday.execute("notice", {
+                                                                    message: `Maximum ${maxValues} value${maxValues !== 1 ? "s" : ""} allowed for "${field.label}".`,
+                                                                    type: "error",
+                                                                    timeout: 4000,
+                                                                });
+                                                                return;
+                                                            }
+                                                        }
                                                         handleFieldChange(
                                                             field.columnId,
                                                             isSelected
@@ -1474,8 +1496,6 @@ const App = () => {
         return results;
     };
 
-
-
     const createItem = async (recordValues) => {
         try {
             const itemName = recordValues.name || "New Item";
@@ -1497,7 +1517,7 @@ const App = () => {
                 if (formatted !== null) columnValues[columnId] = formatted;
             });
 
-            console.log('Column values before submission - create ', columnValues);
+            console.log("Column values before submission - create ", columnValues);
             const mutation = `mutation($boardId: ID!, $itemName: String!, $columnValues: JSON!) { create_item(board_id: $boardId item_name: $itemName column_values: $columnValues) { id name } }`;
             const response = await monday.api(mutation, { variables: { boardId, itemName, columnValues: JSON.stringify(columnValues) } });
             if (response.data && response.data.create_item) {
@@ -1532,8 +1552,7 @@ const App = () => {
                 const columnMeta = getColumnMetadata(columnId);
                 if (!columnMeta || columnMeta.type === "file") return;
                 const isEmpty =
-                    value === "" || value === null || value === undefined ||
-                    (typeof value === "object" && !Array.isArray(value) && value.phone === "");
+                    value === "" || value === null || value === undefined || (typeof value === "object" && !Array.isArray(value) && value.phone === "");
                 if (isEmpty) return;
                 const formatted = formatColumnValue(columnId, value, columnMeta);
                 if (formatted !== null) columnValues[columnId] = formatted;
@@ -1547,14 +1566,14 @@ const App = () => {
                 }`;
                 await monday.api(nameMutation, { variables: { boardId, itemId, newName } });
             }
-            console.log('Column values before submission - update ', columnValues);
+            console.log("Column values before submission - update ", columnValues);
             // ── 2. Update column values (only if there are any) ────
             if (Object.keys(columnValues).length > 0) {
                 const mutation = `mutation($boardId: ID!, $itemId: ID!, $columnValues: JSON!) {
                     change_multiple_column_values(board_id: $boardId item_id: $itemId column_values: $columnValues create_labels_if_missing: false) { id name }
                 }`;
                 const response = await monday.api(mutation, {
-                    variables: { boardId, itemId, columnValues: JSON.stringify(columnValues) }
+                    variables: { boardId, itemId, columnValues: JSON.stringify(columnValues) },
                 });
                 if (!response.data?.change_multiple_column_values) throw new Error("Failed to update item");
             }
@@ -1566,7 +1585,6 @@ const App = () => {
                 timeout: 5000,
             });
             return { success: true };
-
         } catch (error) {
             monday.execute("notice", { message: `Error updating item: ${error.message}`, type: "error", timeout: 5000 });
             return { success: false, error: error.message };
@@ -1711,13 +1729,16 @@ const App = () => {
                         );
                     })}
                     <div className="form-actions">
-                        <button type="submit" className="btn-primary" disabled={submitting}>{submitting ? (
+                        <button type="submit" className="btn-primary" disabled={submitting}>
+                            {submitting ? (
                                 <>
                                     <span className="btn-spinner" />
                                     Submitting…
                                 </>
+                            ) : formAction === "create" ? (
+                                "✓ Create Item"
                             ) : (
-                                formAction === "create" ? "✓ Create Item" : "✓ Update Item"
+                                "✓ Update Item"
                             )}
                         </button>
 
