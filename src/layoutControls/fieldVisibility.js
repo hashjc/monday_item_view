@@ -128,17 +128,10 @@ function resolveDisplayValue(fieldId, rawValue, fieldType, colMetaMap) {
             const indexStr = String(rawValue).trim();
             if (!indexStr || indexStr === "") return null;
 
-
-
             const meta = colMetaMap.get(fieldId);
             const settings = parseSettings(meta);
             const labels = settings.labels || {};
             // settings.labels is { "0": "Label 1", "1": "Label 2", ... }
-
-            console.log("[Debug] status meta:", meta);
-            console.log("[Debug] labels map:", settings.labels);
-            console.log("[Debug] looking for index:", indexStr, "→ found:", settings.labels?.[indexStr]);
-
             const labelText = labels[indexStr];
             if (labelText !== undefined) return String(labelText).trim() || null;
             // Fallback: return the index itself as a string (so is_empty still works)
@@ -208,6 +201,17 @@ function resolveDisplayValue(fieldId, rawValue, fieldType, colMetaMap) {
             return s === "" ? null : s;
         }
 
+        // ── Timeline → "YYYY-MM-DD → YYYY-MM-DD" display string ─────────────
+        case "timerange":
+        case "timeline": {
+            if (!rawValue || typeof rawValue !== "object") return null;
+            const from = (rawValue.from || "").trim();
+            const to   = (rawValue.to   || "").trim();
+            if (!from && !to) return null;
+            if (from && to)   return `${from} → ${to}`;
+            return from || to; // partial — one date set
+        }
+
         // ── Phone → use the phone number string ───────────────────────────────
         case "phone": {
             if (typeof rawValue === "object" && rawValue !== null) {
@@ -267,7 +271,9 @@ function evaluateTextOp(displayValue, operator, ruleValue) {
             return !isEmptyVal;
 
         default: {
-            // All other text operators require a non-empty value to be meaningful
+            // An empty dependency value means the condition cannot be satisfied.
+            // Return false (hide) rather than null (skip/show) so that fields with
+            // visibility rules are hidden when their dependency has no value yet.
             if (isEmptyVal) return false;
             const haystack = displayValue.toLowerCase();
             const needle   = String(ruleValue ?? "").toLowerCase();
@@ -320,6 +326,7 @@ function evaluateNumericOp(displayValue, operator, ruleValue) {
         case "is_not_empty":
             return !isEmptyVal;
         default: {
+            // Empty dependency → condition fails → hide the dependent field
             if (isEmptyVal) return false;
             const num    = Number(displayValue);
             const cmpNum = Number(ruleValue);
@@ -386,6 +393,7 @@ function evaluateDateOp(displayValue, operator, ruleValue) {
         case "is_not_empty":
             return !isEmptyVal;
         default: {
+            // Empty dependency → condition fails → hide the dependent field
             if (isEmptyVal) return false;
             const d = displayValue.trim();
 
@@ -557,27 +565,22 @@ export function computeFieldVisibility(visibleSections, formData, boardColumns) 
     // ── Pass 1: assume everything visible ────────────────────────────────────
     const pass1 = {};
     allFields.forEach((field) => {
-        console.log('All feildss calculating ', field);
         pass1[field.columnId] = isFieldVisible(
             field, formData, allFieldIds, allFieldIds, fieldTypeMap, colMetaMap
         );
     });
-    console.log('pass 1 ', pass1);
+
     const visibleAfterPass1 = new Set(
         Object.entries(pass1).filter(([, v]) => v).map(([k]) => k)
     );
-    console.log('Form data ', formData);
+
     // ── Pass 2: use pass-1 results as dependency filter ───────────────────────
     const pass2 = {};
     allFields.forEach((field) => {
-        console.log('feilds ', field);
-        //Ensure Page layout level required fields are always visible.
         pass2[field.columnId] = isFieldVisible(
             field, formData, allFieldIds, visibleAfterPass1, fieldTypeMap, colMetaMap
         );
     });
 
-    //
-    console.log('pass 2 ', pass2);
     return pass2;
 }

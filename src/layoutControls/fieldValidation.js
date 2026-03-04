@@ -160,13 +160,14 @@ function evaluateValidityCondition(condition, fieldValue) {
  */
 function validateFieldRules(field, fieldValue) {
     const rules = field.validityRules;
-
+    console.log("Validityrules ", rules);
+    console.log("Validityrules value ", fieldValue);
     // No rules or empty object → always valid
     if (!rules || typeof rules !== "object") return { valid: true, message: null };
 
     const conditions = Array.isArray(rules.conditions) ? rules.conditions : [];
     if (conditions.length === 0) return { valid: true, message: null };
-
+    console.log("Validityrules value CP1 ", fieldValue);
     // Process self-referencing conditions — three equivalent ways to write them:
     //
     //   1. source: "self_ref"  (explicit self-reference)
@@ -176,30 +177,33 @@ function validateFieldRules(field, fieldValue) {
     //   4. no source at all (legacy / shorthand)
     //
     // ALL of these mean "validate this field's own value".
+
     const selfConditions = conditions.filter((c) => {
-        if (!c.source) return true;                              // case 4: no source
-        if (c.source === "self_ref")   return true;              // case 1
-        if (c.source === "self__ref")  return true;              // case 2
+        console.log("Validityrules value CP2 ", fieldValue);
+        if (!c.source) return true; // case 4: no source
+        if (c.source === "self_ref") return true; // case 1
+        if (c.source === "self__ref") return true; // case 2
         if (c.source === "field" && c.fieldId === field.columnId) return true; // case 3
         return false;
     });
+
     if (selfConditions.length === 0) return { valid: true, message: null };
 
+    console.log("Validityrules value CP3 ", fieldValue);
     // If the field is empty, skip validity rules (required is checked separately)
-    if (isEmpty(fieldValue)) return { valid: true, message: null };
+    //if (isEmpty(fieldValue)) return { valid: true, message: null };
 
     const results = selfConditions.map((c) => evaluateValidityCondition(c, fieldValue));
 
-    const criteria = String(rules.criteria || "ALL").trim().toUpperCase();
-    const passed =
-        criteria === "ANY" ? results.some(Boolean) : results.every(Boolean);
+    const criteria = String(rules.criteria || "ALL")
+        .trim()
+        .toUpperCase();
+    const passed = criteria === "ANY" ? results.some(Boolean) : results.every(Boolean);
 
     if (passed) return { valid: true, message: null };
 
     // Build error message: use custom message if provided, else auto-generate
-    const message =
-        rules.message ||
-        buildAutoMessage(field.label || field.columnId, selfConditions);
+    const message = rules.message || buildAutoMessage(field.label || field.columnId, selfConditions);
 
     return { valid: false, message };
 }
@@ -213,24 +217,31 @@ function buildAutoMessage(label, conditions) {
         switch (operator) {
             case "min":
             case ">=":
-            case "greater_than_or_equal": return `≥ ${value}`;
+            case "greater_than_or_equal":
+                return `≥ ${value}`;
             case "max":
             case "<=":
-            case "less_than_or_equal":    return `≤ ${value}`;
+            case "less_than_or_equal":
+                return `≤ ${value}`;
             case ">":
-            case "greater_than":          return `> ${value}`;
+            case "greater_than":
+                return `> ${value}`;
             case "<":
-            case "less_than":             return `< ${value}`;
+            case "less_than":
+                return `< ${value}`;
             case "equals":
             case "=":
-            case "==":                    return `= ${value}`;
+            case "==":
+                return `= ${value}`;
             case "not_equals":
-            case "!=":                    return `≠ ${value}`;
+            case "!=":
+                return `≠ ${value}`;
             case "between": {
                 const [lo, hi] = Array.isArray(value) ? value : [value, value];
                 return `between ${lo} and ${hi}`;
             }
-            default: return `${operator} ${value}`;
+            default:
+                return `${operator} ${value}`;
         }
     });
     return `${label} must be: ${parts.join(", ")}`;
@@ -264,6 +275,7 @@ export function validateVisibleFields(visibleSections, formData, fieldVisibility
         const fields = section.fields ?? section.sectionData?.fields ?? [];
 
         fields.forEach((field) => {
+            console.log("Field validation in loop ", field);
             // Skip layout-invalid fields (e.g. duplicate columnIds caught by pageLayoutService)
             if (field.isValid === false || field.duplicate === true) return;
 
@@ -271,8 +283,8 @@ export function validateVisibleFields(visibleSections, formData, fieldVisibility
             const isVisible = fieldVisibilityMap[field.columnId] !== false;
             if (!isVisible) return;
 
-            const value    = formData[field.columnId];
-            const label    = field.label || field.columnId;
+            const value = formData[field.columnId];
+            const label = field.label || field.columnId;
             const required = field.isRequired === true || field.isRequired === "true";
 
             // ── Check 1: required ───────────────────────────────────────────
@@ -280,14 +292,15 @@ export function validateVisibleFields(visibleSections, formData, fieldVisibility
                 errors.push({
                     columnId: field.columnId,
                     label,
-                    message:  `${label} is required`,
-                    type:     "REQUIRED_FIELD",
+                    message: `${label} is required`,
+                    type: "REQUIRED_FIELD",
                 });
                 return; // no point running validity rules on an empty required field
             }
 
             // ── Check 2: validityRules ──────────────────────────────────────
             const { valid, message } = validateFieldRules(field, value);
+            console.log("Field Rule ", valid);
             if (!valid) {
                 errors.push({
                     columnId: field.columnId,

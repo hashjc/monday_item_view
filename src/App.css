@@ -45,6 +45,11 @@ body {
 .field-label { display: block; margin-bottom: 6px; font-weight: 500; font-size: 14px; color: #333; }
 .required-asterisk { margin-left: 6px; color: #dc3545; font-size: 13px; }
 .field-type-hint { margin-top: 4px; font-size: 11px; color: #999; }
+.field-help-text {
+    font-size: 12px;
+    color: #676879;
+    margin-top: 4px;
+}
 .relation-lookup-container { position: relative; width: 100%; overflow: visible !important; }
 .main-item-lookup-results { max-height: 300px !important; overflow-y: auto !important; }
 .relation-lookup-trigger { padding: 8px 32px 8px 12px; width: 100%; border-radius: 4px; border: 1px solid #ccc; font-size: 14px; font-family: inherit; cursor: pointer; display: flex; justify-content: space-between; align-items: center; background-color: #fff; transition: border-color 0.2s; position: relative; min-height: 38px; }

@@ -1560,7 +1560,7 @@ const App = () => {
 
         // validateVisibleFields skips hidden fields automatically via fieldVisibilityMap
         const errors = validateVisibleFields(visibleSections, formData, fieldVisibilityMap);
-
+        console.log("validateVisibleFields ", errors);
         if (errors.length > 0) {
             displayValidationErrors(errors);
             // Scroll to the first offending field
@@ -1647,6 +1647,9 @@ const App = () => {
                                                         </label>
                                                         {renderField(field)}
                                                         <div className="field-type-hint">Type: {field.type}</div>
+                                                        {field.helptext && field.helptext.trim() !== "" && (
+                                                            <div className="field-help-text">{field.helptext}</div>
+                                                        )}
                                                     </div>
                                                 );
                                             })}
