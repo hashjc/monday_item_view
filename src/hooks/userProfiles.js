@@ -1,7 +1,7 @@
 import mondaySdk from "monday-sdk-js";
-
+import { USERS_BOARD_ID } from "../metadataConfig";
 const monday = mondaySdk();
-const USERS_BOARD_ID = 5026719492;
+//const USERS_BOARD_ID = 5026719492;
 const USERS_COL_TITLE_PROFILE = "Profile";
 const USERS_COL_TITLE_USER  = "User";
 

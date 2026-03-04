@@ -78,6 +78,9 @@ const PHONE_COUNTRIES = [
     { code: "UA", name: "Ukraine", dial: "+380", flag: "🇺🇦" },
 ];
 
+// Add this constant at the top of the file with your other constants
+const READ_ONLY_COLUMN_TYPES = new Set(["formula", "mirror", "subtasks", "item_id", "auto_number", "pulse_id"]);
+
 // =============================================================
 // PhoneInput Component
 // =============================================================
@@ -288,13 +291,18 @@ const FallbackForm = ({
     updateItem,
 }) => {
     const name = formData["name"] || "";
-
+    console.log("Item name ", name);
     const handleSubmit = async (e) => {
         e.preventDefault();
         if (!name.trim()) {
             monday.execute("notice", { message: "Item name is required.", type: "error", timeout: 4000 });
             return;
         }
+        monday.execute("notice", {
+            message: "Please wait while your item is being submitted…",
+            type: "info",
+            timeout: 8000,
+        });
         if (formAction === "create") {
             await createItem({ name });
         } else if (formAction === "update") {
@@ -532,6 +540,8 @@ const App = () => {
     // field B which itself has a visibility rule) without infinite loops.
     const fieldVisibilityMap = computeFieldVisibility(visibleSections, formData, boardColumns);
 
+    console.log('fieldVisibilityMap ===> ', fieldVisibilityMap);
+
     // =============================================================
     // EFFECT: Get monday context (boardId, itemId)
     // =============================================================
@@ -745,7 +755,9 @@ const App = () => {
                 setSelectedItem(result.item);
                 const itemData = {};
                 itemData["name"] = result.item.name;
+                console.log("Item retrieved by id ", result);
                 result.item.column_values.forEach((col) => {
+                    if (READ_ONLY_COLUMN_TYPES.has(col.type)) return;
                     if (col.type === "people" || col.type === "board_relation") {
                         try {
                             const parsed = JSON.parse(col.value);
@@ -767,7 +779,7 @@ const App = () => {
                     } else if (col.type === "status" || col.type === "dropdown") {
                         try {
                             const parsed = JSON.parse(col.value);
-                            if (col.type === "status") itemData[col.id] = parsed.index || "";
+                            if (col.type === "status") itemData[col.id] = parsed.index !== undefined && parsed.index !== null ? parsed.index : "";
                             else itemData[col.id] = parsed.ids || [];
                         } catch (e) {
                             itemData[col.id] = col.text || "";
@@ -1427,6 +1439,11 @@ const App = () => {
             }
             case "doc":
                 return null; // doc columns are never written via API
+            case "item_id":
+            case "pulse_id":
+            case "auto_number":
+            case "subtasks":
+                return null;
             default:
                 return String(value);
         }
@@ -1457,12 +1474,19 @@ const App = () => {
         return results;
     };
 
+
+
     const createItem = async (recordValues) => {
         try {
             const itemName = recordValues.name || "New Item";
             const columnValues = {};
             Object.keys(recordValues).forEach((columnId) => {
+                //Skip Name and invisible fields
                 if (columnId === "name") return;
+                if (fieldVisibilityMap[columnId] === false) {
+                    return;
+                }
+                //Continue with other fields
                 const value = recordValues[columnId];
                 const columnMeta = getColumnMetadata(columnId);
                 if (!columnMeta || columnMeta.type === "file") return;
@@ -1472,6 +1496,8 @@ const App = () => {
                 const formatted = formatColumnValue(columnId, value, columnMeta);
                 if (formatted !== null) columnValues[columnId] = formatted;
             });
+
+            console.log('Column values before submission - create ', columnValues);
             const mutation = `mutation($boardId: ID!, $itemName: String!, $columnValues: JSON!) { create_item(board_id: $boardId item_name: $itemName column_values: $columnValues) { id name } }`;
             const response = await monday.api(mutation, { variables: { boardId, itemName, columnValues: JSON.stringify(columnValues) } });
             if (response.data && response.data.create_item) {
@@ -1498,28 +1524,49 @@ const App = () => {
         try {
             const columnValues = {};
             Object.keys(recordValues).forEach((columnId) => {
+                //Skip Name and invisible fields
                 if (columnId === "name") return;
+                if (fieldVisibilityMap[columnId] === false) return;
+                //Continue with other fields
                 const value = recordValues[columnId];
                 const columnMeta = getColumnMetadata(columnId);
                 if (!columnMeta || columnMeta.type === "file") return;
                 const isEmpty =
-                    value === "" || value === null || value === undefined || (typeof value === "object" && !Array.isArray(value) && value.phone === "");
+                    value === "" || value === null || value === undefined ||
+                    (typeof value === "object" && !Array.isArray(value) && value.phone === "");
                 if (isEmpty) return;
                 const formatted = formatColumnValue(columnId, value, columnMeta);
                 if (formatted !== null) columnValues[columnId] = formatted;
             });
-            const mutation = `mutation($boardId: ID!, $itemId: ID!, $columnValues: JSON!) { change_multiple_column_values(board_id: $boardId item_id: $itemId column_values: $columnValues create_labels_if_missing: false) { id name } }`;
-            const response = await monday.api(mutation, { variables: { boardId, itemId, columnValues: JSON.stringify(columnValues) } });
-            if (response.data && response.data.change_multiple_column_values) {
-                const updatedItem = response.data.change_multiple_column_values;
-                const fileErrors = (await uploadPendingFiles(itemId, recordValues, true)).filter((r) => !r.success);
-                monday.execute("notice", {
-                    message: fileErrors.length === 0 ? "Item updated successfully!" : `Item updated, but ${fileErrors.length} file upload(s) failed.`,
-                    type: fileErrors.length === 0 ? "success" : "error",
-                    timeout: 5000,
+
+            // ── 1. Update item name separately if present ──────────
+            const newName = recordValues.name?.trim();
+            if (newName) {
+                const nameMutation = `mutation($boardId: ID!, $itemId: ID!, $newName: String!) {
+                change_simple_column_value(board_id: $boardId item_id: $itemId column_id: "name" value: $newName) { id }
+                }`;
+                await monday.api(nameMutation, { variables: { boardId, itemId, newName } });
+            }
+            console.log('Column values before submission - update ', columnValues);
+            // ── 2. Update column values (only if there are any) ────
+            if (Object.keys(columnValues).length > 0) {
+                const mutation = `mutation($boardId: ID!, $itemId: ID!, $columnValues: JSON!) {
+                    change_multiple_column_values(board_id: $boardId item_id: $itemId column_values: $columnValues create_labels_if_missing: false) { id name }
+                }`;
+                const response = await monday.api(mutation, {
+                    variables: { boardId, itemId, columnValues: JSON.stringify(columnValues) }
                 });
-                return { success: true, item: updatedItem };
-            } else throw new Error("Failed to update item");
+                if (!response.data?.change_multiple_column_values) throw new Error("Failed to update item");
+            }
+
+            const fileErrors = (await uploadPendingFiles(itemId, recordValues, true)).filter((r) => !r.success);
+            monday.execute("notice", {
+                message: fileErrors.length === 0 ? "Item updated successfully!" : `Item updated, but ${fileErrors.length} file upload(s) failed.`,
+                type: fileErrors.length === 0 ? "success" : "error",
+                timeout: 5000,
+            });
+            return { success: true };
+
         } catch (error) {
             monday.execute("notice", { message: `Error updating item: ${error.message}`, type: "error", timeout: 5000 });
             return { success: false, error: error.message };
@@ -1568,9 +1615,13 @@ const App = () => {
             if (firstEl) firstEl.scrollIntoView({ behavior: "smooth", block: "center" });
             return;
         }
-
-        if (formAction === "create") await createItem(formData);
-        else if (formAction === "update" && selectedItemId) await updateItem(selectedItemId, formData);
+        setSubmitting(true);
+        try {
+            if (formAction === "create") await createItem(formData);
+            else if (formAction === "update" && selectedItemId) await updateItem(selectedItemId, formData);
+        } finally {
+            setSubmitting(false);
+        }
     };
 
     // =============================================================
@@ -1660,9 +1711,16 @@ const App = () => {
                         );
                     })}
                     <div className="form-actions">
-                        <button type="submit" className="btn-primary">
-                            {formAction === "create" ? "✓ Create Item" : "✓ Update Item"}
+                        <button type="submit" className="btn-primary" disabled={submitting}>{submitting ? (
+                                <>
+                                    <span className="btn-spinner" />
+                                    Submitting…
+                                </>
+                            ) : (
+                                formAction === "create" ? "✓ Create Item" : "✓ Update Item"
+                            )}
                         </button>
+
                         {formAction === "create" && (
                             <button type="button" onClick={() => setFormData({})} className="btn-secondary">
                                 Clear Form
