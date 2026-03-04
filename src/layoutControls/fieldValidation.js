@@ -97,9 +97,10 @@ function toNumber(value) {
  * @returns {boolean}  true = passes (value is valid), false = fails (error)
  */
 function evaluateValidityCondition(condition, fieldValue) {
+    console.log("Condition ", condition, "field value = ", fieldValue);
     try {
         const { operator, value: threshold } = condition;
-        const numFieldVal  = toNumber(fieldValue);
+        const numFieldVal = toNumber(fieldValue);
         const numThreshold = toNumber(threshold);
 
         switch (operator) {
@@ -134,11 +135,7 @@ function evaluateValidityCondition(condition, fieldValue) {
 
             case "between": {
                 const [lo, hi] = Array.isArray(threshold) ? threshold : [threshold, threshold];
-                return (
-                    numFieldVal !== null &&
-                    numFieldVal >= Number(lo) &&
-                    numFieldVal <= Number(hi)
-                );
+                return numFieldVal !== null && numFieldVal >= Number(lo) && numFieldVal <= Number(hi);
             }
 
             default:
@@ -150,50 +147,37 @@ function evaluateValidityCondition(condition, fieldValue) {
         return true; // fail-open: don't block submission on an evaluation error
     }
 }
-
 /**
- * Validate a single field's validityRules against its current value.
+ * Validates a field's validity rules.
  *
- * @param {Object}        field       field definition from layout JSON
- * @param {*}             fieldValue  the field's current value from formData
- * @returns {{ valid: boolean, message: string|null }}
+ * Each condition in validityRules.conditions must have:
+ *   - fieldId: the columnId of the field whose value to test
+ *              (use this field's own columnId to validate against itself)
+ *   - operator: one of >=, <=, >, <, equals, not_equals, etc.
+ *   - value: the threshold/comparison value
+ *
+ * @param {Object}   field           - the field definition object
+ * @param {*}        fieldValue      - current value of this field
+ * @param {Function} getFieldValue   - (columnId) => value  — resolves any other field's current value
+ *                                     (can be omitted if all conditions are self-referencing)
  */
-function validateFieldRules(field, fieldValue) {
+function validateFieldRules(field, fieldValue, getFieldValue = () => null) {
+    console.log("Validate field rules ", fieldValue);
+    console.log("Validate field rules field> ", field);
     const rules = field.validityRules;
-    console.log("Validityrules ", rules);
-    console.log("Validityrules value ", fieldValue);
-    // No rules or empty object → always valid
     if (!rules || typeof rules !== "object") return { valid: true, message: null };
 
     const conditions = Array.isArray(rules.conditions) ? rules.conditions : [];
     if (conditions.length === 0) return { valid: true, message: null };
-    console.log("Validityrules value CP1 ", fieldValue);
-    // Process self-referencing conditions — three equivalent ways to write them:
-    //
-    //   1. source: "self_ref"  (explicit self-reference)
-    //   2. source: "self__ref" (typo-tolerant alias)
-    //   3. source: "field", fieldId: <same as this field's columnId>
-    //      → user passed the field's own columnId as the dependency
-    //   4. no source at all (legacy / shorthand)
-    //
-    // ALL of these mean "validate this field's own value".
 
-    const selfConditions = conditions.filter((c) => {
-        console.log("Validityrules value CP2 ", fieldValue);
-        if (!c.source) return true; // case 4: no source
-        if (c.source === "self_ref") return true; // case 1
-        if (c.source === "self__ref") return true; // case 2
-        if (c.source === "field" && c.fieldId === field.columnId) return true; // case 3
-        return false;
+    const results = conditions.map((c) => {
+        // Resolve whose value we're testing
+        const targetValue = c.fieldId === field.columnId ? fieldValue : getFieldValue(c.columnId);
+        
+        return evaluateValidityCondition(c, targetValue);
     });
 
-    if (selfConditions.length === 0) return { valid: true, message: null };
-
-    console.log("Validityrules value CP3 ", fieldValue);
-    // If the field is empty, skip validity rules (required is checked separately)
-    //if (isEmpty(fieldValue)) return { valid: true, message: null };
-
-    const results = selfConditions.map((c) => evaluateValidityCondition(c, fieldValue));
+    console.log("Field conditions Reuslts ", results);
 
     const criteria = String(rules.criteria || "ALL")
         .trim()
@@ -202,9 +186,7 @@ function validateFieldRules(field, fieldValue) {
 
     if (passed) return { valid: true, message: null };
 
-    // Build error message: use custom message if provided, else auto-generate
-    const message = rules.message || buildAutoMessage(field.label || field.columnId, selfConditions);
-
+    const message = rules.message || buildAutoMessage(field.label || field.columnId, conditions);
     return { valid: false, message };
 }
 
@@ -299,7 +281,7 @@ export function validateVisibleFields(visibleSections, formData, fieldVisibility
             }
 
             // ── Check 2: validityRules ──────────────────────────────────────
-            const { valid, message } = validateFieldRules(field, value);
+            const { valid, message } = validateFieldRules(field, value, (colId) => formData[colId]);
             console.log("Field Rule ", valid);
             if (!valid) {
                 errors.push({
