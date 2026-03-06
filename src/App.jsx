@@ -82,7 +82,7 @@ const PHONE_COUNTRIES = [
 ];
 
 // Add this constant at the top of the file with your other constants
-const READ_ONLY_COLUMN_TYPES = new Set(["formula", "mirror", "subtasks", "item_id", "auto_number", "pulse_id"]);
+const READ_ONLY_COLUMN_TYPES = new Set(["formula", "mirror", "subtasks", "item_id", "auto_number", "pulse_id", "creation_log", "last_updated", "auto_number"]);
 
 // =============================================================
 // PhoneInput Component
@@ -1306,6 +1306,10 @@ const App = () => {
                 );
             case "formula":
             case "mirror":
+            case "creation_log":
+            case "last_updated":
+            case "item_id":
+            case "auto_number":
                 return (
                     <input
                         type="text"
