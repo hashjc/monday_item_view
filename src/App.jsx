@@ -17,7 +17,9 @@ import { getAllUsers, searchUsersByNameOrEmail } from "./hooks/usersAndTeams";
 import { getUsersProfileName } from "./hooks/userProfiles";
 import { filterVisibleSections } from "./hooks/sectionVisibility";
 import { computeFieldVisibility } from "./layoutControls/fieldVisibility";   // field-level visibility
-import { validateVisibleFields } from "./layoutControls/fieldValidation";    // field-level validation
+import { validateVisibleFields } from "./layoutControls/fieldValidation"; // field-level validationv
+import { runAllValidationRules } from "./itemValidations/formValidationConfig";
+
 import RelatedLists from "./components/RelatedLists";
 
 const monday = mondaySdk();
@@ -206,7 +208,11 @@ const FileUpload = ({ columnId, value, onChange, field, isUpdate }) => {
         const selected = Array.from(e.target.files || []);
         if (!selected.length) return;
         const remaining = maxFiles ? maxFiles - totalCount : Infinity;
-        if (remaining <= 0) { alert(`Maximum ${maxFiles} file(s) allowed.`); e.target.value = ""; return; }
+        if (remaining <= 0) {
+            alert(`Maximum ${maxFiles} file(s) allowed.`);
+            e.target.value = "";
+            return;
+        }
         const toAdd = selected.slice(0, remaining);
         if (selected.length > remaining) alert(`Only ${remaining} more file(s) can be added (max ${maxFiles}).`);
         if (isUpdate) onChange(columnId, { existingFiles, newFiles: [...newFiles, ...toAdd] });
@@ -230,7 +236,9 @@ const FileUpload = ({ columnId, value, onChange, field, isUpdate }) => {
                     {existingFiles.map((f, i) => (
                         <div key={i} className="file-pill existing">
                             <span className="file-pill-icon">📎</span>
-                            <a href={f.url} target="_blank" rel="noopener noreferrer" className="file-pill-name" title={f.name}>{f.name}</a>
+                            <a href={f.url} target="_blank" rel="noopener noreferrer" className="file-pill-name" title={f.name}>
+                                {f.name}
+                            </a>
                         </div>
                     ))}
                 </div>
@@ -241,9 +249,13 @@ const FileUpload = ({ columnId, value, onChange, field, isUpdate }) => {
                     {newFiles.map((f, i) => (
                         <div key={i} className="file-pill new">
                             <span className="file-pill-icon">📄</span>
-                            <span className="file-pill-name" title={f.name}>{f.name}</span>
+                            <span className="file-pill-name" title={f.name}>
+                                {f.name}
+                            </span>
                             <span className="file-pill-size">({(f.size / 1024).toFixed(1)} KB)</span>
-                            <button type="button" className="file-pill-remove" onClick={() => removeNewFile(i)} title="Remove file">×</button>
+                            <button type="button" className="file-pill-remove" onClick={() => removeNewFile(i)} title="Remove file">
+                                ×
+                            </button>
                         </div>
                     ))}
                 </div>
@@ -252,7 +264,11 @@ const FileUpload = ({ columnId, value, onChange, field, isUpdate }) => {
                 <button type="button" className="file-upload-btn" onClick={() => fileInputRef.current?.click()}>
                     <span>📎</span>
                     <span>{newFiles.length > 0 ? "Add more files" : "Attach files"}</span>
-                    {maxFiles && <span className="file-upload-limit">({totalCount}/{maxFiles})</span>}
+                    {maxFiles && (
+                        <span className="file-upload-limit">
+                            ({totalCount}/{maxFiles})
+                        </span>
+                    )}
                 </button>
             )}
             {atLimit && <div className="file-upload-limit-msg">Maximum {maxFiles} file(s) reached.</div>}
@@ -468,7 +484,7 @@ const FallbackForm = ({
 };
 
 const App = () => {
-    console.log("App start");
+    console.log("App start 0603");
 
     // ── Core context state ──────────────────────────────────────
     const [context, setContext] = useState();
@@ -516,9 +532,10 @@ const App = () => {
     // ── Hooks (declared before any useEffect that references them) ──
     const { boards: boardsFromHook } = useBoards();
     const boards = boardsFromHook || [];
-    const { items, validatedSections, validationSummary, validatedChildBoards, validationError, loading, error } = usePageLayoutInfo(boardId);
+    const { items, validatedSections, validationSummary, validatedChildBoards, validationRules, validationError, loading, error } = usePageLayoutInfo(boardId);
     const pageLayoutLoading = loading;
     const pageLayoutError = error;
+    console.log("validationRules ===> ", validationRules);
 
     // ── Derived: sections visible to this user ───────────────────
     // While userProfile is still loading (null) we don't filter yet — avoids
@@ -538,6 +555,7 @@ const App = () => {
     //
     // Two-pass algorithm handles chained dependencies (field A depends on
     // field B which itself has a visibility rule) without infinite loops.
+    const columnsMap = Object.fromEntries(boardColumns.map((c) => [c.id, c]));
     const fieldVisibilityMap = computeFieldVisibility(visibleSections, formData, boardColumns);
 
     console.log("fieldVisibilityMap ===> ", fieldVisibilityMap);
@@ -1609,7 +1627,12 @@ const App = () => {
             byType[e.type].push(e);
         });
         let msg = "Please fix the following errors:\n\n";
-        const typeLabel = (t) => (t === "REQUIRED_FIELD" ? "Required fields:" : "Invalid values:");
+        //const typeLabel = (t) => (t === "REQUIRED_FIELD" ? "Required fields:" : "Invalid values:");
+        const typeLabel = (t) => {
+            if (t === "REQUIRED_FIELD") return "Required fields:";
+            if (t === "VALIDATION_RULE") return "Validation errors:";
+            return "Invalid values:";
+        };
         Object.keys(byType).forEach((type) => {
             msg += `${typeLabel(type)}\n`;
             byType[type].forEach((err) => {
@@ -1623,16 +1646,39 @@ const App = () => {
     const handleFormSubmit = async (e) => {
         e.preventDefault();
 
-        // validateVisibleFields skips hidden fields automatically via fieldVisibilityMap
-        const errors = validateVisibleFields(visibleSections, formData, fieldVisibilityMap);
-        console.log("validateVisibleFields ", errors);
-        if (errors.length > 0) {
-            displayValidationErrors(errors);
-            // Scroll to the first offending field
-            const firstEl = document.querySelector(`[data-column-id="${errors[0].columnId}"]`);
-            if (firstEl) firstEl.scrollIntoView({ behavior: "smooth", block: "center" });
+        // ── Layer 1: field-level required + validity rules (skips hidden fields) ──
+        const fieldErrors = validateVisibleFields(visibleSections, formData, fieldVisibilityMap);
+
+        // ── Layer 2: board-level cross-field validation rules ──────────────────
+        // runAllValidationRules evaluates all pre-filtered active rules.
+        // expression true = INVALID (Salesforce-style error condition).
+        // Returns [{ ruleId, error, fields }] for each failing rule.
+        const ruleFailures = runAllValidationRules(validationRules, formData, columnsMap);
+
+        // Map rule failures to the same error shape as field errors so
+        // displayValidationErrors can handle both in one pass.
+        const ruleErrors = ruleFailures.map((f) => ({
+            columnId: f.fields?.[0] || null, // first referenced field, for scroll-to
+            label: f.error, // rule error IS the label here
+            message: f.error,
+            type: "VALIDATION_RULE",
+        }));
+
+        // Merge both layers — show ALL errors at once, never one at a time
+        const allErrors = [...fieldErrors, ...ruleErrors];
+        console.log("Form validation errors:", allErrors);
+
+        if (allErrors.length > 0) {
+            displayValidationErrors(allErrors);
+            // Scroll to the first offending field (field-level errors take priority)
+            const scrollTarget = allErrors[0].columnId;
+            if (scrollTarget) {
+                const firstEl = document.querySelector(`[data-column-id="${scrollTarget}"]`);
+                if (firstEl) firstEl.scrollIntoView({ behavior: "smooth", block: "center" });
+            }
             return;
         }
+
         setSubmitting(true);
         try {
             if (formAction === "create") await createItem(formData);

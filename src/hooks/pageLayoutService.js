@@ -3,12 +3,14 @@ import { useState, useEffect } from "react";
 import { METADATA_BOARD_ID as METADATA_BOARD_ID_FROM_FILE } from "../metadataConfig";
 import { getBoardColumns } from "./boardMetadata";
 import { getChildBoards } from "./boardMetadata";
+import { loadValidationRules } from "../itemValidations/formValidationConfig";
 
 const monday = mondaySdk();
 const PAGELAYOUTSECTIONS_BOARD_ID = METADATA_BOARD_ID_FROM_FILE;
 const PAGELAYOUT_COL_TITLE_BOARDID = "Board Id";
 const PAGELAYOUT_COL_TITLE_SECTIONS = "Sections";
 const PAGELAYOUT_COL_TITLE_CHILD_BOARDS = "Child Boards";
+const PAGELAYOUTSECTION_COLUMN_TITLE_VALIDATION_RULES = "Validation Rules";
 const LIMIT = 500;
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
@@ -455,11 +457,22 @@ export async function retrievePageLayoutInfoForBoard(boardId) {
         }
         const plsRecord = items[0];
 
-        // Step 3: Validate sections (existing logic)
+        // Step 3: Validate sections and child boards in parallel
         const [sectionsResult, childBoardsResult] = await Promise.all([
             checkPageLayoutColumnValidity(plsRecord, boardId),
             validateChildBoards(plsRecord, boardId),
         ]);
+
+        // Step 4: Parse and pre-filter validation rules from the PLS column.
+        // loadValidationRules filters to only active rules with valid expressions
+        // and fields that exist on this board. The form app receives a clean list
+        // — no further filtering needed at submit time.
+        const boardColumnsResult = await getBoardColumns(boardId);
+        const columnsMap = boardColumnsResult.success ? Object.fromEntries((boardColumnsResult.columns || []).map((c) => [c.id, c])) : {};
+
+        const vrCV = plsRecord.column_values.find((cv) => cv.column && cv.column.title === PAGELAYOUTSECTION_COLUMN_TITLE_VALIDATION_RULES);
+        const rawVrText = parseRawColumnText(vrCV) || "";
+        const validationRules = loadValidationRules(rawVrText, columnsMap);
 
         if (!sectionsResult.success) {
             console.warn("[PageLayoutService] Section validation failed:", sectionsResult.error);
@@ -469,6 +482,7 @@ export async function retrievePageLayoutInfoForBoard(boardId) {
                 validatedSections: [],
                 validationSummary: null,
                 validatedChildBoards: childBoardsResult.validatedChildBoards || [],
+                validationRules,
                 validationError: sectionsResult.error,
                 error: null,
             };
@@ -480,6 +494,7 @@ export async function retrievePageLayoutInfoForBoard(boardId) {
             validatedSections: sectionsResult.validatedSections,
             validationSummary: sectionsResult.validationSummary,
             validatedChildBoards: childBoardsResult.validatedChildBoards || [],
+            validationRules,
             error: null,
         };
     } catch (error) {
@@ -491,6 +506,7 @@ export async function retrievePageLayoutInfoForBoard(boardId) {
             validatedSections: [],
             validationSummary: null,
             validatedChildBoards: [],
+            validationRules: [],
         };
     }
 }
@@ -500,12 +516,11 @@ export async function retrievePageLayoutInfoForBoard(boardId) {
 /**
  * React hook — wraps retrievePageLayoutInfoForBoard with loading state.
  *
- * NOW ALSO RETURNS: validatedChildBoards
- *
  * Usage in App.jsx:
  *   const {
  *     items, validatedSections, validationSummary,
- *     validatedChildBoards,           ← NEW
+ *     validatedChildBoards,
+ *     validationRules,   ← pre-filtered active+valid rules, ready to evaluate on submit
  *     loading, error
  *   } = usePageLayoutInfo(boardId);
  */
@@ -515,6 +530,7 @@ export function usePageLayoutInfo(boardId) {
         validatedSections: [],
         validationSummary: null,
         validatedChildBoards: [],
+        validationRules: [], // active, syntax-valid, field-valid rules for this board
         validationError: null, // set when PLS record exists but sections are invalid
         loading: true,
         error: null,
@@ -527,6 +543,7 @@ export function usePageLayoutInfo(boardId) {
                 validatedSections: [],
                 validationSummary: null,
                 validatedChildBoards: [],
+                validationRules: [],
                 validationError: null,
                 loading: false,
                 error: null,
@@ -543,6 +560,7 @@ export function usePageLayoutInfo(boardId) {
                     validatedSections: result.validatedSections || [],
                     validationSummary: result.validationSummary || null,
                     validatedChildBoards: result.validatedChildBoards || [],
+                    validationRules: result.validationRules || [],
                     validationError: result.validationError || null,
                     loading: false,
                     error: result.success ? null : result.error,
@@ -554,6 +572,7 @@ export function usePageLayoutInfo(boardId) {
                     validatedSections: [],
                     validationSummary: null,
                     validatedChildBoards: [],
+                    validationRules: [],
                     validationError: null,
                     loading: false,
                     error: err.message || `Unknown error for board ${boardId}`,
