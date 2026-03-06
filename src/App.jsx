@@ -17,7 +17,8 @@ import { getAllUsers, searchUsersByNameOrEmail } from "./hooks/usersAndTeams";
 import { getUsersProfileName } from "./hooks/userProfiles";
 import { filterVisibleSections } from "./hooks/sectionVisibility";
 import { computeFieldVisibility } from "./layoutControls/fieldVisibility";   // field-level visibility
-import { validateVisibleFields } from "./layoutControls/fieldValidation"; // field-level validationv
+
+
 import { runAllValidationRules } from "./itemValidations/formValidationConfig";
 
 import RelatedLists from "./components/RelatedLists";
@@ -1611,10 +1612,8 @@ const App = () => {
 
     // =============================================================
     // FORM VALIDATION
-    // Uses validateVisibleFields() from fieldValidation.js which:
     //   1. Skips fields hidden by fieldVisibilityMap
     //   2. Checks isRequired on visible fields
-    //   3. Checks validityRules (min/max/range) on visible fields
     // The old validateForm() is replaced by this single call.
     // =============================================================
 
@@ -1646,9 +1645,6 @@ const App = () => {
     const handleFormSubmit = async (e) => {
         e.preventDefault();
 
-        // ── Layer 1: field-level required + validity rules (skips hidden fields) ──
-        const fieldErrors = validateVisibleFields(visibleSections, formData, fieldVisibilityMap);
-
         // ── Layer 2: board-level cross-field validation rules ──────────────────
         // runAllValidationRules evaluates all pre-filtered active rules.
         // expression true = INVALID (Salesforce-style error condition).
@@ -1665,7 +1661,7 @@ const App = () => {
         }));
 
         // Merge both layers — show ALL errors at once, never one at a time
-        const allErrors = [...fieldErrors, ...ruleErrors];
+        const allErrors = [...ruleErrors];
         console.log("Form validation errors:", allErrors);
 
         if (allErrors.length > 0) {
