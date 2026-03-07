@@ -5,19 +5,12 @@ import mondaySdk from "monday-sdk-js";
 import "@vibe/core/tokens";
 import { useBoards } from "./hooks/useBoards";
 import { usePageLayoutInfo } from "./hooks/pageLayoutService";
-import {
-    retrieveBoardItems,
-    retrieveItemById,
-    retrieveBoardItemsByItemName,
-    retrieveMultipleBoardItems,
-    retrieveMultipleBoardItemsByItemName,
-} from "./hooks/items";
+import { retrieveItemById, retrieveMultipleBoardItems, retrieveMultipleBoardItemsByItemName } from "./hooks/items";
 import { getBoardColumns } from "./hooks/boardMetadata";
 import { getAllUsers, searchUsersByNameOrEmail } from "./hooks/usersAndTeams";
 import { getUsersProfileName } from "./hooks/userProfiles";
 import { filterVisibleSections } from "./hooks/sectionVisibility";
-import { computeFieldVisibility } from "./layoutControls/fieldVisibility";   // field-level visibility
-
+import { computeFieldVisibility } from "./layoutControls/fieldVisibility"; // field-level visibility
 
 import { runAllValidationRules } from "./itemValidations/formValidationConfig";
 
@@ -407,16 +400,39 @@ const FallbackForm = ({
                                         <div className="relation-lookup-empty">No records match your search</div>
                                     )}
                                     {!mainItemLookup.loading &&
-                                        mainItemLookup.items?.map((item) => (
-                                            <div
-                                                key={item.id}
-                                                className={`relation-lookup-item ${String(selectedItemId) === String(item.id) ? "selected" : ""}`}
-                                                onClick={() => selectUpdateItem(item)}
-                                            >
-                                                <div className="relation-lookup-item-name">{item.name}</div>
-                                                <div className="relation-lookup-item-id">ID: {item.id}</div>
-                                            </div>
-                                        ))}
+                                        mainItemLookup.items &&
+                                        mainItemLookup.items.length > 0 &&
+                                        (() => {
+                                            const groups = [];
+                                            const groupIndex = {};
+                                            mainItemLookup.items.forEach((item) => {
+                                                const gId = item.group?.id || "ungrouped";
+                                                const gName = item.group?.title || "Ungrouped";
+                                                const gColor = item.group?.color || null;
+                                                if (!groupIndex[gId]) {
+                                                    groupIndex[gId] = { gId, gName, gColor, items: [] };
+                                                    groups.push(groupIndex[gId]);
+                                                }
+                                                groupIndex[gId].items.push(item);
+                                            });
+                                            return groups.map((group) => (
+                                                <div key={group.gId}>
+                                                    <div className="rl-group-header" style={group.gColor ? { color: group.gColor } : {}}>
+                                                        <span className="rl-group-dot" style={group.gColor ? { background: group.gColor } : {}} />
+                                                        {group.gName}
+                                                    </div>
+                                                    {group.items.map((item) => (
+                                                        <div
+                                                            key={item.id}
+                                                            className={`relation-lookup-item relation-lookup-item--grouped ${String(selectedItemId) === String(item.id) ? "selected" : ""}`}
+                                                            onClick={() => selectUpdateItem(item)}
+                                                        >
+                                                            <div className="relation-lookup-item-name">{item.name}</div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            ));
+                                        })()}
                                 </div>
                                 <div className="relation-lookup-footer">
                                     {mainItemLookup.items?.length || 0} records found in {selectedBoardName}
@@ -504,6 +520,8 @@ const App = () => {
     // ── Form state ──────────────────────────────────────────────
     const [formData, setFormData] = useState({});
     const [collapsedSections, setCollapsedSections] = useState({});
+
+    const [collapsedRelationBoards, setCollapsedRelationBoards] = useState({});
 
     // ── Board metadata ──────────────────────────────────────────
     const [boardColumns, setBoardColumns] = useState([]);
@@ -719,7 +737,8 @@ const App = () => {
         setLoadingItems(true);
         setItemsError(null);
         try {
-            const result = await retrieveBoardItems(boardId);
+            const result = await retrieveMultipleBoardItems([boardId]);
+            console.log("board items ", result);
             if (result.success) setBoardItems(result.items);
             else {
                 setItemsError(result.error);
@@ -738,7 +757,10 @@ const App = () => {
         if (searchTimers.current["main_update"]) clearTimeout(searchTimers.current["main_update"]);
         searchTimers.current["main_update"] = setTimeout(async () => {
             try {
-                const result = searchTerm.trim() ? await retrieveBoardItemsByItemName(boardId, searchTerm) : await retrieveBoardItems(boardId);
+                const result = searchTerm.trim()
+                    ? await retrieveMultipleBoardItemsByItemName([boardId], searchTerm)
+                    : await retrieveMultipleBoardItems([boardId]);
+
                 setMainItemLookup((prev) => ({ ...prev, items: result.success ? result.items : [], loading: false, isOpen: true }));
             } catch (err) {
                 setMainItemLookup((prev) => ({ ...prev, loading: false }));
@@ -776,7 +798,10 @@ const App = () => {
                 itemData["name"] = result.item.name;
                 console.log("Item retrieved by id ", result);
                 result.item.column_values.forEach((col) => {
-                    if (READ_ONLY_COLUMN_TYPES.has(col.type)) return;
+                    if (READ_ONLY_COLUMN_TYPES.has(col.type)) {
+                        itemData[col.id] = col.text || col.display_value || "";
+                        return;
+                    }
                     if (col.type === "people" || col.type === "board_relation") {
                         try {
                             const parsed = JSON.parse(col.value);
@@ -898,6 +923,8 @@ const App = () => {
         setRelationLookups((prev) => ({ ...prev, [columnId]: { ...prev[columnId], loading: true, isOpen: true } }));
         try {
             const result = await retrieveMultipleBoardItems(relatedBoardIds);
+
+            console.log("reult ", result);
             if (result.success) {
                 setRelationLookups((prev) => ({
                     ...prev,
@@ -1209,38 +1236,98 @@ const App = () => {
                                         })}
                                     {field.type === "board_relation" &&
                                         !lookup.loading &&
-                                        lookup.items?.map((item) => {
-                                            const isSelected = selectedItems.some((i) => String(i.id) === String(item.id));
-                                            return (
-                                                <div
-                                                    key={item.id}
-                                                    className={`relation-lookup-item ${isSelected ? "selected" : ""}`}
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        if (!isSelected) {
-                                                            const maxValues = field.maxValues ? parseInt(field.maxValues) : null;
-                                                            if (maxValues !== null && selectedItems.length >= maxValues) {
-                                                                monday.execute("notice", {
-                                                                    message: `Maximum ${maxValues} value${maxValues !== 1 ? "s" : ""} allowed for "${field.label}".`,
-                                                                    type: "error",
-                                                                    timeout: 4000,
-                                                                });
-                                                                return;
-                                                            }
-                                                        }
-                                                        handleFieldChange(
-                                                            field.columnId,
-                                                            isSelected
-                                                                ? selectedItems.filter((i) => String(i.id) !== String(item.id))
-                                                                : [...selectedItems, { id: item.id, name: item.name }],
-                                                        );
-                                                    }}
-                                                >
-                                                    <div className="relation-lookup-item-name">{item.name}</div>
-                                                    <div className="relation-lookup-item-id">ID: {item.id}</div>
-                                                </div>
-                                            );
-                                        })}
+                                        (() => {
+                                            const boards = [];
+                                            const boardIndex = {};
+
+                                            (lookup.items || []).forEach((item) => {
+                                                const bId = item.boardId || "unknown";
+                                                const bName = item.boardName || lookup.boardNames?.[bId] || "Unknown Board";
+                                                const gId = item.group?.id || "ungrouped";
+                                                const gName = item.group?.title || "Ungrouped";
+                                                const gColor = item.group?.color || null;
+
+                                                if (!boardIndex[bId]) {
+                                                    boardIndex[bId] = { bId, bName, groups: [], groupIndex: {} };
+                                                    boards.push(boardIndex[bId]);
+                                                }
+                                                const board = boardIndex[bId];
+                                                if (!board.groupIndex[gId]) {
+                                                    board.groupIndex[gId] = { gId, gName, gColor, items: [] };
+                                                    board.groups.push(board.groupIndex[gId]);
+                                                }
+                                                board.groupIndex[gId].items.push(item);
+                                            });
+
+                                            const maxValues = field.maxValues ? parseInt(field.maxValues) : null;
+                                            const collapseKey = (bId) => `${field.columnId}__${bId}`;
+
+                                            return boards.map((board) => {
+                                                const key = collapseKey(board.bId);
+                                                const isCollapsed = collapsedRelationBoards[key] ?? false;
+                                                const totalItems = board.groups.reduce((s, g) => s + g.items.length, 0);
+
+                                                return (
+                                                    <div key={board.bId} className="rl-board-section">
+                                                        <div
+                                                            className="rl-board-section-header"
+                                                            onClick={() => setCollapsedRelationBoards((prev) => ({ ...prev, [key]: !isCollapsed }))}
+                                                        >
+                                                            <span className="rl-board-section-title">{board.bName}</span>
+                                                            <span className="rl-board-section-count">{totalItems}</span>
+                                                            <span className="rl-board-section-caret">{isCollapsed ? "▶" : "▼"}</span>
+                                                        </div>
+                                                        {!isCollapsed && (
+                                                            <div className="rl-board-section-body">
+                                                                {board.groups.map((group) => (
+                                                                    <div key={group.gId}>
+                                                                        <div className="rl-group-header" style={group.gColor ? { color: group.gColor } : {}}>
+                                                                            <span
+                                                                                className="rl-group-dot"
+                                                                                style={group.gColor ? { background: group.gColor } : {}}
+                                                                            />
+                                                                            {group.gName}
+                                                                        </div>
+                                                                        {group.items.map((item) => {
+                                                                            const isSelected = selectedItems.some((i) => String(i.id) === String(item.id));
+                                                                            return (
+                                                                                <div
+                                                                                    key={item.id}
+                                                                                    className={`relation-lookup-item relation-lookup-item--grouped ${isSelected ? "selected" : ""}`}
+                                                                                    onClick={(e) => {
+                                                                                        e.stopPropagation();
+                                                                                        if (
+                                                                                            !isSelected &&
+                                                                                            maxValues !== null &&
+                                                                                            selectedItems.length >= maxValues
+                                                                                        ) {
+                                                                                            monday.execute("notice", {
+                                                                                                message: `Maximum ${maxValues} value${maxValues !== 1 ? "s" : ""} allowed for "${field.label}".`,
+                                                                                                type: "error",
+                                                                                                timeout: 4000,
+                                                                                            });
+                                                                                            return;
+                                                                                        }
+                                                                                        handleFieldChange(
+                                                                                            field.columnId,
+                                                                                            isSelected
+                                                                                                ? selectedItems.filter((i) => String(i.id) !== String(item.id))
+                                                                                                : [...selectedItems, { id: item.id, name: item.name }],
+                                                                                        );
+                                                                                    }}
+                                                                                >
+                                                                                    <div className="relation-lookup-item-name">{item.name}</div>
+                                                                                </div>
+                                                                            );
+                                                                        })}
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            });
+                                        })()}
                                 </div>
                             </div>
                         )}
@@ -1533,6 +1620,7 @@ const App = () => {
                 const value = recordValues[columnId];
                 const columnMeta = getColumnMetadata(columnId);
                 if (!columnMeta || columnMeta.type === "file") return;
+                 if (READ_ONLY_COLUMN_TYPES.has(columnMeta.type)) return;
                 const isEmpty =
                     value === "" || value === null || value === undefined || (typeof value === "object" && !Array.isArray(value) && value.phone === "");
                 if (isEmpty) return;
@@ -1574,6 +1662,7 @@ const App = () => {
                 const value = recordValues[columnId];
                 const columnMeta = getColumnMetadata(columnId);
                 if (!columnMeta || columnMeta.type === "file") return;
+                if (READ_ONLY_COLUMN_TYPES.has(columnMeta.type)) return;
                 const isEmpty =
                     value === "" || value === null || value === undefined || (typeof value === "object" && !Array.isArray(value) && value.phone === "");
                 if (isEmpty) return;
@@ -1607,6 +1696,10 @@ const App = () => {
                 type: fileErrors.length === 0 ? "success" : "error",
                 timeout: 5000,
             });
+
+            // Refresh the form with the latest saved values (recalculated
+            // formula/mirror fields will now reflect the updated record).
+            await handleItemSelection({ target: { value: itemId } });
             return { success: true };
         } catch (error) {
             monday.execute("notice", { message: `Error updating item: ${error.message}`, type: "error", timeout: 5000 });
@@ -1648,6 +1741,23 @@ const App = () => {
 
     const handleFormSubmit = async (e) => {
         e.preventDefault();
+        // ── Layer 1: required field checks ────────────────────────────────────
+        const fieldErrors = [];
+        visibleSections.forEach((section) => {
+            if (!section.isFullyValid || !section.fields) return;
+            section.fields.forEach((field) => {
+                if (field.isValid !== true || field.duplicate !== false) return;
+                if (fieldVisibilityMap[field.columnId] === false) return;
+                const isRequired = field.isRequired === true || field.isRequired === "true";
+                if (!isRequired) return;
+                const val = formData[field.columnId];
+                const isEmpty =
+                    val === "" || val === null || val === undefined ||
+                    (Array.isArray(val) && val.length === 0) ||
+                    (typeof val === "object" && !Array.isArray(val) && val?.phone === "");
+                if (isEmpty) fieldErrors.push({ columnId: field.columnId, label: field.label, message: `"${field.label}" is required.`, type: "REQUIRED_FIELD" });
+            });
+        });
 
         // ── Layer 2: board-level cross-field validation rules ──────────────────
         // runAllValidationRules evaluates all pre-filtered active rules.
@@ -1665,7 +1775,7 @@ const App = () => {
         }));
 
         // Merge both layers — show ALL errors at once, never one at a time
-        const allErrors = [...ruleErrors];
+        const allErrors = [...fieldErrors, ...ruleErrors];
         console.log("Form validation errors:", allErrors);
 
         if (allErrors.length > 0) {
@@ -1990,16 +2100,43 @@ const App = () => {
                                                             {!mainItemLookup.loading &&
                                                                 mainItemLookup.items &&
                                                                 mainItemLookup.items.length > 0 &&
-                                                                mainItemLookup.items.map((item) => (
-                                                                    <div
-                                                                        key={item.id}
-                                                                        className={`relation-lookup-item ${String(selectedItemId) === String(item.id) ? "selected" : ""}`}
-                                                                        onClick={() => selectUpdateItem(item)}
-                                                                    >
-                                                                        <div className="relation-lookup-item-name">{item.name}</div>
-                                                                        <div className="relation-lookup-item-id">ID: {item.id}</div>
-                                                                    </div>
-                                                                ))}
+                                                                (() => {
+                                                                    const groups = [];
+                                                                    const groupIndex = {};
+                                                                    mainItemLookup.items.forEach((item) => {
+                                                                        const gId = item.group?.id || "ungrouped";
+                                                                        const gName = item.group?.title || "Ungrouped";
+                                                                        const gColor = item.group?.color || null;
+                                                                        if (!groupIndex[gId]) {
+                                                                            groupIndex[gId] = { gId, gName, gColor, items: [] };
+                                                                            groups.push(groupIndex[gId]);
+                                                                        }
+                                                                        groupIndex[gId].items.push(item);
+                                                                    });
+                                                                    return groups.map((group) => (
+                                                                        <div key={group.gId}>
+                                                                            <div
+                                                                                className="rl-group-header"
+                                                                                style={group.gColor ? { color: group.gColor } : {}}
+                                                                            >
+                                                                                <span
+                                                                                    className="rl-group-dot"
+                                                                                    style={group.gColor ? { background: group.gColor } : {}}
+                                                                                />
+                                                                                {group.gName}
+                                                                            </div>
+                                                                            {group.items.map((item) => (
+                                                                                <div
+                                                                                    key={item.id}
+                                                                                    className={`relation-lookup-item relation-lookup-item--grouped ${String(selectedItemId) === String(item.id) ? "selected" : ""}`}
+                                                                                    onClick={() => selectUpdateItem(item)}
+                                                                                >
+                                                                                    <div className="relation-lookup-item-name">{item.name}</div>
+                                                                                </div>
+                                                                            ))}
+                                                                        </div>
+                                                                    ));
+                                                                })()}
                                                         </div>
                                                         <div className="relation-lookup-footer">
                                                             {mainItemLookup.items?.length || 0} records found in {selectedBoardName}

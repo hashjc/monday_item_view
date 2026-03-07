@@ -68,6 +68,7 @@ export async function retrieveBoardItems(boardId) {
                         items {
                             id
                             name
+                            group { id title color }
                             column_values {
                                 id
                                 text
@@ -92,7 +93,7 @@ export async function retrieveBoardItems(boardId) {
             return {
                 success: false,
                 error: response.errors[0].message || "GraphQL query failed",
-                items: []
+                items: [],
             };
         }
 
@@ -100,7 +101,7 @@ export async function retrieveBoardItems(boardId) {
             return {
                 success: false,
                 error: `Cannot access board (ID: ${boardId}). Board doesn't exist or user lacks permissions.`,
-                items: []
+                items: [],
             };
         }
 
@@ -108,14 +109,14 @@ export async function retrieveBoardItems(boardId) {
         const items = board.items_page?.items || [];
 
         console.log(`[retrieveBoardItems] Found ${items.length} items in board ${board.name}`);
+        console.log(`[retrieveBoardItems] Found  `, JSON.stringify(items));
 
         return {
             success: true,
             error: "",
             items: items,
-            boardName: board.name
+            boardName: board.name,
         };
-
     } catch (error) {
         console.error("[retrieveBoardItems] Error:", error);
         const errorMessage = error.message || String(error);
@@ -129,7 +130,7 @@ export async function retrieveBoardItems(boardId) {
             error: isPermissionError
                 ? `Permission denied: User does not have access to board (ID: ${boardId}).`
                 : `Failed to fetch board items: ${errorMessage}`,
-            items: []
+            items: [],
         };
     }
 }
@@ -167,19 +168,17 @@ export async function retrieveMultipleBoardItems(boardIds) {
         return {
             success: true,
             error: "",
-            items: result.items.map(item => ({
+            items: result.items.map((item) => ({
                 ...item,
                 boardId: String(boardIds[0]),
-                boardName: result.boardName
+                boardName: result.boardName,
             })),
-            boardNames: { [String(boardIds[0])]: result.boardName }
+            boardNames: { [String(boardIds[0])]: result.boardName },
         };
     }
 
     // Multiple boards — fetch all in parallel
-    const results = await Promise.allSettled(
-        boardIds.map(boardId => retrieveBoardItems(boardId))
-    );
+    const results = await Promise.allSettled(boardIds.map((boardId) => retrieveBoardItems(boardId)));
 
     const allItems = [];
     const boardNames = {};
@@ -193,19 +192,17 @@ export async function retrieveMultipleBoardItems(boardIds) {
             boardNames[boardId] = boardName;
 
             // Tag every item with its source board
-            items.forEach(item => {
+            items.forEach((item) => {
                 allItems.push({
                     ...item,
                     boardId,
-                    boardName
+                    boardName,
                 });
             });
 
             console.log(`[retrieveMultipleBoardItems] Board "${boardName}": ${items.length} items`);
         } else {
-            const errorMsg = result.status === "rejected"
-                ? result.reason?.message || "Unknown error"
-                : result.value?.error || "Failed to fetch";
+            const errorMsg = result.status === "rejected" ? result.reason?.message || "Unknown error" : result.value?.error || "Failed to fetch";
 
             console.warn(`[retrieveMultipleBoardItems] Board ${boardId} failed: ${errorMsg}`);
             errors.push(`Board ${boardId}: ${errorMsg}`);
@@ -217,7 +214,7 @@ export async function retrieveMultipleBoardItems(boardIds) {
             success: false,
             error: errors.join("; "),
             items: [],
-            boardNames
+            boardNames,
         };
     }
 
@@ -227,7 +224,7 @@ export async function retrieveMultipleBoardItems(boardIds) {
         success: true,
         error: errors.length > 0 ? `Some boards failed: ${errors.join("; ")}` : "",
         items: allItems,
-        boardNames
+        boardNames,
     };
 }
 
@@ -264,19 +261,17 @@ export async function retrieveMultipleBoardItemsByItemName(boardIds, itemName) {
         return {
             success: true,
             error: "",
-            items: result.items.map(item => ({
+            items: result.items.map((item) => ({
                 ...item,
                 boardId: String(boardIds[0]),
-                boardName
+                boardName,
             })),
-            boardNames: { [String(boardIds[0])]: boardName }
+            boardNames: { [String(boardIds[0])]: boardName },
         };
     }
 
     // Multiple boards — search all in parallel
-    const results = await Promise.allSettled(
-        boardIds.map(boardId => retrieveBoardItemsByItemName(boardId, itemName))
-    );
+    const results = await Promise.allSettled(boardIds.map((boardId) => retrieveBoardItemsByItemName(boardId, itemName)));
 
     const allItems = [];
     const boardNames = {};
@@ -287,9 +282,13 @@ export async function retrieveMultipleBoardItemsByItemName(boardIds, itemName) {
         const idsStr = boardIds.join(", ");
         const namesResponse = await monday.api(`query { boards(ids: [${idsStr}]) { id name } }`);
         const boards = namesResponse.data?.boards || [];
-        boards.forEach(b => { boardNames[String(b.id)] = b.name; });
+        boards.forEach((b) => {
+            boardNames[String(b.id)] = b.name;
+        });
     } catch (_) {
-        boardIds.forEach(id => { boardNames[String(id)] = `Board ${id}`; });
+        boardIds.forEach((id) => {
+            boardNames[String(id)] = `Board ${id}`;
+        });
     }
 
     results.forEach((result, index) => {
@@ -297,13 +296,11 @@ export async function retrieveMultipleBoardItemsByItemName(boardIds, itemName) {
         const boardName = boardNames[boardId] || `Board ${boardId}`;
 
         if (result.status === "fulfilled" && result.value.success) {
-            result.value.items.forEach(item => {
+            result.value.items.forEach((item) => {
                 allItems.push({ ...item, boardId, boardName });
             });
         } else {
-            const errorMsg = result.status === "rejected"
-                ? result.reason?.message || "Unknown error"
-                : result.value?.error || "No results";
+            const errorMsg = result.status === "rejected" ? result.reason?.message || "Unknown error" : result.value?.error || "No results";
             errors.push(`"${boardName}": ${errorMsg}`);
         }
     });
@@ -313,7 +310,7 @@ export async function retrieveMultipleBoardItemsByItemName(boardIds, itemName) {
             success: false,
             error: `No items found matching "${itemName}"`,
             items: [],
-            boardNames
+            boardNames,
         };
     }
 
@@ -321,7 +318,7 @@ export async function retrieveMultipleBoardItemsByItemName(boardIds, itemName) {
         success: true,
         error: "",
         items: allItems,
-        boardNames
+        boardNames,
     };
 }
 
@@ -364,6 +361,7 @@ export async function retrieveBoardItemsByItemName(boardId, itemName) {
                         items {
                             id
                             name
+                            group { id title color}
                             board {
                                 id
                                 name
@@ -391,7 +389,7 @@ export async function retrieveBoardItemsByItemName(boardId, itemName) {
             return {
                 success: false,
                 error: response.errors[0].message || "Failed to search items",
-                items: []
+                items: [],
             };
         }
 
@@ -402,15 +400,14 @@ export async function retrieveBoardItemsByItemName(boardId, itemName) {
         return {
             success: true,
             error: items.length === 0 ? `No items found matching "${itemName}"` : "",
-            items
+            items,
         };
-
     } catch (error) {
         console.error("[retrieveBoardItemsByItemName] Error:", error);
         return {
             success: false,
             error: error.message || "Failed to search items",
-            items: []
+            items: [],
         };
     }
 }
@@ -456,6 +453,12 @@ export async function retrieveItemById(itemId) {
 
                         # Mirror Column
                         ... on MirrorValue {
+                            display_value
+                        }
+                        # Formula
+                        ... on FormulaValue {
+                            value
+                            id
                             display_value
                         }
                     }

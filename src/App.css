@@ -81,8 +81,99 @@ body {
 .relation-lookup-item.people-item:hover { background-color: #f5f5f5 !important; }
 .relation-lookup-item.people-item.selected { background-color: #e3f2fd !important; }
 .relation-lookup-item.people-item input[type="checkbox"] { pointer-events: none !important; cursor: pointer !important; }
-.relation-lookup-board-header { padding: 6px 16px 4px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #0073ea; background-color: #f0f6ff; border-top: 1px solid #d0e8ff; border-bottom: 1px solid #d0e8ff; position: sticky; top: 0; z-index: 1; }
+.relation-lookup-board-header {
+    padding: 6px 16px 4px;
+    font-size: 11px;
+    font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #0073ea; background-color: #f0f6ff; border-top: 1px solid #d0e8ff; border-bottom: 1px solid #d0e8ff; position: sticky; top: 0; z-index: 2; }
 .relation-lookup-board-header:first-child { border-top: none; }
+/* Board section wrapper */
+.rl-board-section {
+    border-bottom: 1px solid #e8eaf0;
+}
+.rl-board-section:last-child {
+    border-bottom: none;
+}
+
+/* Clickable board header */
+.rl-board-section-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    background: #eef3ff;
+    cursor: pointer;
+    user-select: none;
+    border-bottom: 1px solid #d8e4ff;
+    transition: background 0.12s;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+}
+.rl-board-section-header:hover {
+    background: #e0ebff;
+}
+
+.rl-board-section-title {
+    flex: 1;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: #0073ea;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.rl-board-section-count {
+    background: #0073ea;
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 8px;
+    line-height: 1.5;
+    flex-shrink: 0;
+}
+
+.rl-board-section-caret {
+    font-size: 9px;
+    color: #0073ea;
+    flex-shrink: 0;
+}
+
+/* Board section body */
+.rl-board-section-body {
+    background: #fff;
+}
+
+/* Group header row */
+.rl-group-header {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 5px 14px 4px 16px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #676879;        /* overridden inline when group has a color */
+    background: #f9f9fb;
+    border-bottom: 1px solid #f0f0f5;
+}
+
+/* Colored dot before group name */
+.rl-group-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #c3c6d4;   /* overridden inline when group has a color */
+    flex-shrink: 0;
+}
+
+/* Items indented under their group */
+.relation-lookup-item--grouped {
+    padding-left: 28px !important;
+}
+
 .pills-container { display: flex; flex-wrap: wrap; gap: 4px; padding: 2px 0; flex: 1; }
 .selected-record-pill { display: inline-flex; align-items: center; background-color: #f1f7ff; border: 1px solid #cce5ff; border-radius: 12px; padding: 2px 8px; margin: 2px; font-size: 12px; color: #0073ea; }
 .pill-text { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
