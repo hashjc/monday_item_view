@@ -301,7 +301,6 @@ const FallbackForm = ({
     updateItem,
 }) => {
     const name = formData["name"] || "";
-    console.log("Item name ", name);
     const handleSubmit = async (e) => {
         e.preventDefault();
         if (!name.trim()) {
@@ -501,7 +500,7 @@ const FallbackForm = ({
 };
 
 const App = () => {
-    console.log("App start 0603");
+    
 
     // ── Core context state ──────────────────────────────────────
     const [context, setContext] = useState();
@@ -554,7 +553,7 @@ const App = () => {
     const { items, validatedSections, validationSummary, validatedChildBoards, validationRules, validationError, loading, error } = usePageLayoutInfo(boardId);
     const pageLayoutLoading = loading;
     const pageLayoutError = error;
-    console.log("validationRules ===> ", validationRules);
+    
 
     // ── Derived: sections visible to this user ───────────────────
     // While userProfile is still loading (null) we don't filter yet — avoids
@@ -577,7 +576,7 @@ const App = () => {
     const columnsMap = Object.fromEntries(boardColumns.map((c) => [c.id, c]));
     const fieldVisibilityMap = computeFieldVisibility(visibleSections, formData, boardColumns);
 
-    console.log("fieldVisibilityMap ===> ", fieldVisibilityMap);
+    
 
     // =============================================================
     // EFFECT: Get monday context (boardId, itemId)
@@ -639,7 +638,6 @@ const App = () => {
             .then((profile) => {
                 // Normalise null/undefined → "" so rule engine treats them as blank
                 const normProfile = profile === null || profile === undefined ? "" : String(profile).trim();
-                console.log(`[App] User ${userId} profile: "${normProfile || "(blank)"}"`);
                 setUserProfile(normProfile);
             })
             .catch((err) => {
@@ -657,7 +655,6 @@ const App = () => {
         getBoardColumns(boardId).then((result) => {
             if (result.success) {
                 setBoardColumns(result.columns);
-                console.log("Board columns loaded:", result.columns);
             }
         });
     }, [boardId]);
@@ -672,7 +669,6 @@ const App = () => {
         // Always auto-load the item in item-view mode regardless of whether
         // a PLS layout exists. The fallback form also needs the item name
         // populated and formAction set to "update".
-        console.log("[ItemView] Auto-loading item:", itemId);
         setFormAction("update");
         handleItemSelection({ target: { value: itemId } });
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -738,7 +734,6 @@ const App = () => {
         setItemsError(null);
         try {
             const result = await retrieveMultipleBoardItems([boardId]);
-            console.log("board items ", result);
             if (result.success) setBoardItems(result.items);
             else {
                 setItemsError(result.error);
@@ -796,7 +791,6 @@ const App = () => {
                 setSelectedItem(result.item);
                 const itemData = {};
                 itemData["name"] = result.item.name;
-                console.log("Item retrieved by id ", result);
                 result.item.column_values.forEach((col) => {
                     if (READ_ONLY_COLUMN_TYPES.has(col.type)) {
                         itemData[col.id] = col.text || col.display_value || "";
@@ -924,7 +918,6 @@ const App = () => {
         try {
             const result = await retrieveMultipleBoardItems(relatedBoardIds);
 
-            console.log("reult ", result);
             if (result.success) {
                 setRelationLookups((prev) => ({
                     ...prev,
@@ -1628,7 +1621,6 @@ const App = () => {
                 if (formatted !== null) columnValues[columnId] = formatted;
             });
 
-            console.log("Column values before submission - create ", columnValues);
             const mutation = `mutation($boardId: ID!, $itemName: String!, $columnValues: JSON!) { create_item(board_id: $boardId item_name: $itemName column_values: $columnValues) { id name } }`;
             const response = await monday.api(mutation, { variables: { boardId, itemName, columnValues: JSON.stringify(columnValues) } });
             if (response.data && response.data.create_item) {
@@ -1678,7 +1670,6 @@ const App = () => {
                 }`;
                 await monday.api(nameMutation, { variables: { boardId, itemId, newName } });
             }
-            console.log("Column values before submission - update ", columnValues);
             // ── 2. Update column values (only if there are any) ────
             if (Object.keys(columnValues).length > 0) {
                 const mutation = `mutation($boardId: ID!, $itemId: ID!, $columnValues: JSON!) {
@@ -1776,7 +1767,6 @@ const App = () => {
 
         // Merge both layers — show ALL errors at once, never one at a time
         const allErrors = [...fieldErrors, ...ruleErrors];
-        console.log("Form validation errors:", allErrors);
 
         if (allErrors.length > 0) {
             displayValidationErrors(allErrors);
