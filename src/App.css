@@ -77,7 +77,7 @@ body {
 .relation-lookup-item-name { font-size: 14px !important; font-weight: 500 !important; color: #333 !important; margin-bottom: 4px !important; display: block !important; }
 .relation-lookup-item-id { font-size: 12px !important; color: #666 !important; display: block !important; }
 .relation-lookup-footer { padding: 10px 16px !important; border-top: 1px solid #e0e0e0 !important; font-size: 12px !important; color: #666 !important; background-color: #f9f9f9 !important; flex-shrink: 0 !important; }
-.relation-lookup-item.people-item { padding: 10px 12px !important; }
+.relation-lookup-item.people-item { padding: 10px 12px !important; display: flex !important; align-items: center !important; gap: 8px !important;}
 .relation-lookup-item.people-item:hover { background-color: #f5f5f5 !important; }
 .relation-lookup-item.people-item.selected { background-color: #e3f2fd !important; }
 .relation-lookup-item.people-item input[type="checkbox"] { pointer-events: none !important; cursor: pointer !important; }
