@@ -448,7 +448,6 @@ export function loadValidationRules(rawJson, columnsMap) {
         activeRules.push(rule);
     }
 
-    console.log(`[formValidation] Loaded ${activeRules.length}/${parsed.length} active valid rules.`);
     return activeRules;
 }
 

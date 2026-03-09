@@ -75,7 +75,7 @@ const PHONE_COUNTRIES = [
 ];
 
 // Add this constant at the top of the file with your other constants
-const READ_ONLY_COLUMN_TYPES = new Set(["formula", "mirror", "subtasks", "item_id", "auto_number", "pulse_id", "creation_log", "last_updated", "auto_number"]);
+const READ_ONLY_COLUMN_TYPES = new Set(["formula", "mirror", "subtasks", "item_id", "auto_number", "pulse_id", "creation_log", "last_updated", "auto_number", "doc"]);
 
 // =============================================================
 // PhoneInput Component
@@ -778,6 +778,7 @@ const App = () => {
     };
 
     const handleItemSelection = async (event) => {
+        
         const itemId = event.target.value;
         setSelectedItemId(itemId);
         if (!itemId) {
@@ -869,8 +870,26 @@ const App = () => {
                         } catch (_) {
                             itemData[col.id] = null;
                         }
+                    } else if (col.type === "long_text") {
+                        try {
+                            const parsed = JSON.parse(col.value);
+                            itemData[col.id] = parsed.text || "";
+                        } catch (_) {
+                            itemData[col.id] = col.text || "";
+                        }
+                    } else if (col.type === "text") {
+                        itemData[col.id] = col.text || "";
+                    } else if (col.type === "date") {
+                        itemData[col.id] = col.text || "";
+                    } else if (col.type === "email") {
+                        try {
+                            const parsed = JSON.parse(col.value);
+                            itemData[col.id] = { email: parsed.email || "", text: parsed.text || "" };
+                        } catch (_) {
+                            itemData[col.id] = { email: col.text || "", text: col.text || "" };
+                        }
                     } else {
-                        itemData[col.id] = col.text || col.value || "";
+                        itemData[col.id] = col.text || col.value || null;
                     }
                 });
                 setFormData(itemData);
@@ -1067,7 +1086,6 @@ const App = () => {
     const renderField = (field) => {
         const value = formData[field.columnId] !== undefined ? formData[field.columnId] : "";
         const columnMetadata = getColumnMetadata(field.columnId);
-
         const inputStyle = { padding: "8px 12px", width: "100%", borderRadius: "4px", border: "1px solid #ccc", fontSize: "14px", fontFamily: "inherit" };
 
         switch (field.type) {
@@ -1327,16 +1345,29 @@ const App = () => {
                     </div>
                 );
             }
-            case "email":
+            case "email": {
+                const emailVal = typeof value === "object" && value !== null
+                    ? value
+                    : { email: value || "", text: "" };
                 return (
-                    <input
-                        type="email"
-                        value={value}
-                        onChange={(e) => handleFieldChange(field.columnId, e.target.value)}
-                        placeholder={`Enter ${field.label}`}
-                        style={inputStyle}
-                    />
+                    <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                        <input
+                            type="email"
+                            value={emailVal.email || ""}
+                            onChange={(e) => handleFieldChange(field.columnId, { ...emailVal, email: e.target.value })}
+                            placeholder={`Enter ${field.label}`}
+                            style={inputStyle}
+                        />
+                        <input
+                            type="text"
+                            value={emailVal.text || ""}
+                            onChange={(e) => handleFieldChange(field.columnId, { ...emailVal, text: e.target.value })}
+                            placeholder="Display label (optional)"
+                            style={{ ...inputStyle, fontSize: "12px" }}
+                        />
+                    </div>
                 );
+            }
             case "phone":
                 return <PhoneInput columnId={field.columnId} value={value} onChange={handleFieldChange} label={field.label} />;
             case "name":
@@ -1510,6 +1541,30 @@ const App = () => {
         }
     };
 
+
+    // ─── Helper: get the correct "clear" payload for a column type ────────────────
+    const BLANK_COLUMN_VALUE = (type) => {
+        switch (type) {
+            case "status":         return { label: "" };        // clears status universally
+            case "dropdown":       return { ids: [] };
+            case "people":         return { personsAndTeams: [] };
+            case "board_relation": return { item_ids: [] };
+            case "date":           return { date: null };       // monday accepts null to clear
+            case "timeline":
+            case "timerange":      return { from: null, to: null };
+            case "long_text":      return { text: "" };
+            case "text":           return "";
+            case "email": return { email: "", text: "" };
+            case "phone":          return "";
+            case "link":           return "";
+            case "numbers":        return null;                 // omit — monday rejects ""
+            case "checkbox":       return { checked: "false" };
+            case "rating":         return { rating: 0 };
+            case "tags":           return { tag_ids: [] };
+            default:               return null;                 // omit unknown types safely
+        }
+    };
+
     // =============================================================
     // FORMAT COLUMN VALUE FOR API
     // =============================================================
@@ -1536,12 +1591,20 @@ const App = () => {
             case "date":
                 return String(value).trim() !== "" ? { date: value } : null;
             case "numbers":
-                return String(value);
+                const trimmed = String(value).trim();
+                if (trimmed === "" || isNaN(Number(trimmed))) return null;
+                return trimmed;
             case "text":
             case "long_text":
                 return String(value);
-            case "email":
-                return String(value).trim() !== "" ? { email: String(value).trim(), text: String(value).trim() } : null;
+            case "email": {
+                const e = typeof value === "object" && value !== null ? value : { email: String(value).trim(), text: String(value).trim() };
+                const addr = (e.email || "").trim();
+                if (!addr) return null;
+                return { email: addr, text: e.text || addr };
+            }
+            //case "email":
+            //return String(value).trim() !== "" ? { email: String(value).trim(), text: String(value).trim() } : null;
             case "phone": {
                 const p = value && typeof value === "object" ? value : null;
                 if (!p || !p.phone || !String(p.phone).trim()) return null;
@@ -1599,6 +1662,60 @@ const App = () => {
         return results;
     };
 
+    // ─── Unified type-aware empty check ──────────────────────────────────────────
+// Returns true if the value represents "user has cleared this field".
+// Each branch matches exactly how that type is stored in formData.
+const isFieldEmpty = (type, val) => {
+    if (val === null || val === undefined) return true;
+    switch (type) {
+        // Scalar types — empty string means cleared
+        case "email":
+            if (typeof val === "object" && val !== null) return !val.email || String(val.email).trim() === "";
+            return String(val).trim() === "";
+        case "text":
+            return String(val).trim() === "";
+        case "long_text":
+        case "phone_text":  // fallback for plain string phone
+        case "numbers":
+        case "date":
+            return String(val).trim() === "";
+
+        // Array types — empty array means cleared
+        case "people":
+        case "board_relation":
+        case "dropdown":
+        case "tags":
+            return Array.isArray(val) && val.length === 0;
+
+        // Status — empty string index means "-- Select --" was chosen
+        case "status":
+            return val === "" || val === null || val === undefined;
+
+        // Phone — object with empty/null phone number
+        case "phone":
+            return !val.phone || String(val.phone).trim() === "";
+
+        // Link — object with empty URL
+        case "link":
+            return !val.url || String(val.url).trim() === "";
+
+        // Timeline / timerange — object with both dates cleared
+        case "timeline":
+        case "timerange":
+            const from = val?.from || "";
+            const to = val?.to || "";
+            return from.trim() === "" && to.trim() === "";
+
+        // Numbers — also catch NaN from number input
+        // (redundant with scalar above but kept explicit for clarity)
+        //case "numbers":
+            //return String(val).trim() === "" || isNaN(Number(val));
+
+        default:
+            return val === "";
+        }
+   };
+
     const createItem = async (recordValues) => {
         try {
             const itemName = recordValues.name || "New Item";
@@ -1651,15 +1768,23 @@ const App = () => {
                 if (columnId === "name") return;
                 if (fieldVisibilityMap[columnId] === false) return;
                 //Continue with other fields
-                const value = recordValues[columnId];
+                const value = recordValues[columnId] ;
                 const columnMeta = getColumnMetadata(columnId);
                 if (!columnMeta || columnMeta.type === "file") return;
                 if (READ_ONLY_COLUMN_TYPES.has(columnMeta.type)) return;
-                const isEmpty =
-                    value === "" || value === null || value === undefined || (typeof value === "object" && !Array.isArray(value) && value.phone === "");
-                if (isEmpty) return;
-                const formatted = formatColumnValue(columnId, value, columnMeta);
-                if (formatted !== null) columnValues[columnId] = formatted;
+                
+                if (isFieldEmpty(columnMeta.type, value)) {
+                    // Field was cleared — send the type-specific blank payload, or omit if null
+                    const blankPayload = BLANK_COLUMN_VALUE(columnMeta.type);
+                    columnValues[columnId] = blankPayload;
+                    
+                } else {
+                    // Field has a value — format it for the API
+                    const formatted = formatColumnValue(columnId, value, columnMeta);
+                    if (formatted !== null) columnValues[columnId] = formatted;
+                }
+                
+                
             });
 
             // ── 1. Update item name separately if present ──────────
@@ -1670,6 +1795,7 @@ const App = () => {
                 }`;
                 await monday.api(nameMutation, { variables: { boardId, itemId, newName } });
             }
+            
             // ── 2. Update column values (only if there are any) ────
             if (Object.keys(columnValues).length > 0) {
                 const mutation = `mutation($boardId: ID!, $itemId: ID!, $columnValues: JSON!) {
@@ -1734,6 +1860,31 @@ const App = () => {
         e.preventDefault();
         // ── Layer 1: required field checks ────────────────────────────────────
         const fieldErrors = [];
+        visibleSections.forEach((section) => {
+            if (!section.isFullyValid || !section.fields) return;
+            section.fields.forEach((field) => {
+                if (field.isValid !== true || field.duplicate !== false) return;
+                if (fieldVisibilityMap[field.columnId] === false) return;
+                if (field.type !== "timeline" && field.type !== "timerange") return;
+
+                const val = formData[field.columnId];
+                const from = val?.from || "";
+                const to = val?.to || "";
+                const hasFrom = from.trim() !== "";
+                const hasTo = to.trim() !== "";
+
+                if (hasFrom !== hasTo) {
+                    // One is set, the other is not — block submission
+                    fieldErrors.push({
+                        columnId: field.columnId,
+                        label: field.label,
+                        message: `"${field.label}": both start and end dates must be set, or both must be cleared.`,
+                        type: "REQUIRED_FIELD",
+                    });
+                }
+            });
+        });
+
         visibleSections.forEach((section) => {
             if (!section.isFullyValid || !section.fields) return;
             section.fields.forEach((field) => {

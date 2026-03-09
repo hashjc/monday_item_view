@@ -91,7 +91,6 @@ function parseRawColumnText(cv) {
 // ─── Sections validation ──────────────────────────────────────────────────────
 
 async function checkPageLayoutColumnValidity(plsRecord, boardId) {
-    console.log("[PageLayoutService] Validating sections for record:", plsRecord?.id);
     try {
         const boardColumnsResult = await getBoardColumns(boardId);
 
@@ -239,15 +238,12 @@ async function checkPageLayoutColumnValidity(plsRecord, boardId) {
  *   ValidatedColumn: { id: string, title: string, type: string }
  */
 async function validateChildBoards(plsRecord, parentBoardId) {
-    console.log("[PageLayoutService] Validating child boards for parent:", parentBoardId);
-
     // ── Step 1: Find and parse the "Child Boards" column ─────────────────────
     const childBoardsCV = plsRecord.column_values.find((cv) => cv.column && cv.column.title === PAGELAYOUT_COL_TITLE_CHILD_BOARDS);
 
     const rawText = parseRawColumnText(childBoardsCV);
     if (!rawText || !rawText.trim()) {
         // No child boards configured — not an error, just nothing to show
-        console.log("[PageLayoutService] No child boards configured for this board.");
         return { success: true, validatedChildBoards: [] };
     }
 
@@ -357,9 +353,6 @@ async function validateChildBoards(plsRecord, parentBoardId) {
             skippedColumns, // informational — columns that were skipped
         });
     }
-
-    console.log(`[PageLayoutService] Child board validation complete: ` + `${validatedChildBoards.length}/${configuredChildBoards.length} valid.`);
-
     return { success: true, validatedChildBoards };
 }
 
@@ -439,8 +432,7 @@ export async function retrievePageLayoutInfoForBoard(boardId) {
         }
 
         const items = response?.data?.boards?.[0]?.items_page?.items || [];
-        console.log("[PageLayoutService] PLS records fetched:", items.length);
-
+        
         if (items.length === 0) {
             return {
                 success: true,

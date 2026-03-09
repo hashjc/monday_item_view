@@ -51,8 +51,6 @@ export async function deleteItems(itemIds = []) {
  * @returns {Promise<Object>} { success, error, items, boardName }
  */
 export async function retrieveBoardItems(boardId) {
-    console.log(`items.js [retrieveBoardItems] Fetching items for board: ${boardId}`);
-
     if (!boardId) {
         return { success: false, error: "Board ID is required", items: [] };
     }
@@ -107,10 +105,6 @@ export async function retrieveBoardItems(boardId) {
 
         const board = response.data.boards[0];
         const items = board.items_page?.items || [];
-
-        console.log(`[retrieveBoardItems] Found ${items.length} items in board ${board.name}`);
-        console.log(`[retrieveBoardItems] Found  `, JSON.stringify(items));
-
         return {
             success: true,
             error: "",
@@ -154,8 +148,6 @@ export async function retrieveBoardItems(boardId) {
 //   }
 // =============================================================
 export async function retrieveMultipleBoardItems(boardIds) {
-    console.log(`items.js [retrieveMultipleBoardItems] Fetching from boards: ${boardIds.join(", ")}`);
-
     if (!boardIds || boardIds.length === 0) {
         return { success: false, error: "At least one board ID is required", items: [] };
     }
@@ -199,11 +191,8 @@ export async function retrieveMultipleBoardItems(boardIds) {
                     boardName,
                 });
             });
-
-            console.log(`[retrieveMultipleBoardItems] Board "${boardName}": ${items.length} items`);
         } else {
             const errorMsg = result.status === "rejected" ? result.reason?.message || "Unknown error" : result.value?.error || "Failed to fetch";
-
             console.warn(`[retrieveMultipleBoardItems] Board ${boardId} failed: ${errorMsg}`);
             errors.push(`Board ${boardId}: ${errorMsg}`);
         }
@@ -217,8 +206,6 @@ export async function retrieveMultipleBoardItems(boardIds) {
             boardNames,
         };
     }
-
-    console.log(`[retrieveMultipleBoardItems] Total: ${allItems.length} items across ${Object.keys(boardNames).length} board(s)`);
 
     return {
         success: true,
@@ -236,8 +223,6 @@ export async function retrieveMultipleBoardItems(boardIds) {
 // @returns {Promise<Object>} same shape as retrieveMultipleBoardItems
 // =============================================================
 export async function retrieveMultipleBoardItemsByItemName(boardIds, itemName) {
-    console.log(`items.js [retrieveMultipleBoardItemsByItemName] Boards: ${boardIds.join(", ")}, Name: "${itemName}"`);
-
     if (!boardIds || boardIds.length === 0) {
         return { success: false, error: "At least one board ID is required", items: [] };
     }
@@ -330,8 +315,6 @@ export async function retrieveMultipleBoardItemsByItemName(boardIds, itemName) {
  * @returns {Promise<Object>} { success, error, items }
  */
 export async function retrieveBoardItemsByItemName(boardId, itemName) {
-    console.log(`items.js [retrieveBoardItemsByItemName] Board: ${boardId}, Name: ${itemName}`);
-
     if (!boardId) {
         return { success: false, error: "Board ID is required", items: [] };
     }
@@ -395,7 +378,6 @@ export async function retrieveBoardItemsByItemName(boardId, itemName) {
 
         const items = response.data?.boards?.[0]?.items_page?.items || [];
 
-        console.log(`[retrieveBoardItemsByItemName] Found ${items.length} item(s)`);
 
         return {
             success: true,
@@ -419,8 +401,7 @@ export async function retrieveBoardItemsByItemName(boardId, itemName) {
  * @returns {Promise<Object>} { success, error, item }
  */
 export async function retrieveItemById(itemId) {
-    console.log(`items.js [retrieveItemById] Fetching item: ${itemId}`);
-
+    
     if (!itemId) {
         return { success: false, error: "Item ID is required", item: null };
     }
@@ -486,8 +467,7 @@ export async function retrieveItemById(itemId) {
             };
         }
 
-        console.log(`[retrieveItemById] Found item: ${items[0].name}`);
-
+       
         return { success: true, error: "", item: items[0] };
 
     } catch (error) {
