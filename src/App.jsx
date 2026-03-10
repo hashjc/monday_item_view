@@ -77,6 +77,137 @@ const PHONE_COUNTRIES = [
 // Add this constant at the top of the file with your other constants
 const READ_ONLY_COLUMN_TYPES = new Set(["formula", "mirror", "subtasks", "item_id", "auto_number", "pulse_id", "creation_log", "last_updated", "auto_number", "doc"]);
 
+const StatusInput = ({ field, value, labels, onChange }) => {
+    const [statusOpen, setStatusOpen] = React.useState(false);
+    const statusRef = React.useRef(null);
+    const selectedLabel = labels.find((l) => String(l.index) === String(value));
+
+    React.useEffect(() => {
+        const handler = (e) => {
+            if (statusRef.current && !statusRef.current.contains(e.target))
+                setStatusOpen(false);
+        };
+        document.addEventListener("mousedown", handler);
+        return () => document.removeEventListener("mousedown", handler);
+    }, []);
+
+    return (
+        <div ref={statusRef} style={{ position: "relative" }}>
+            {/* Trigger */}
+            <div
+                onClick={() => setStatusOpen((p) => !p)}
+                style={{
+                    padding: "8px 12px",
+                    borderRadius: "4px",
+                    border: `1px solid ${selectedLabel?.border || "#ccc"}`,
+                    backgroundColor: selectedLabel?.color || "#fff",
+                    color: selectedLabel ? "#fff" : "#999",
+                    fontWeight: selectedLabel ? 600 : 400,
+                    fontSize: "14px",
+                    cursor: "pointer",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    userSelect: "none",
+                }}
+            >
+                <span>{selectedLabel?.label || `-- Select ${field.label} --`}</span>
+                <span style={{ fontSize: "11px", opacity: 0.8 }}>{statusOpen ? "▲" : "▼"}</span>
+            </div>
+
+            {/* Dropdown */}
+            {statusOpen && (
+                <div style={{
+                    position: "absolute",
+                    top: "calc(100% + 4px)",
+                    left: 0,
+                    minWidth: "280px",
+                    maxWidth: "420px",
+                    background: "#fff",
+                    border: "1px solid #d0d4e4",
+                    borderRadius: "8px",
+                    boxShadow: "0 8px 24px rgba(0,0,0,0.15)",
+                    zIndex: 10000,
+                    padding: "12px",
+                }}>
+                    {/* Label grid — matches monday's native pill layout */}
+                    <div style={{
+                        display: "flex",
+                        flexWrap: "wrap",
+                        gap: "6px",
+                        marginBottom: "10px",
+                    }}>
+                        {labels.map((lbl) => {
+                            const isSelected = String(lbl.index) === String(value);
+                            return (
+                                <div
+                                    key={lbl.index}
+                                    onClick={() => { onChange(field.columnId, lbl.index); setStatusOpen(false); }}
+                                    style={{
+                                        flex: "0 0 calc(50% - 3px)",   // 2-column grid like monday
+                                        boxSizing: "border-box",
+                                        padding: "6px 10px",
+                                        borderRadius: "4px",
+                                        backgroundColor: lbl.color,
+                                        border: isSelected
+                                            ? `2px solid #fff`
+                                            : `2px solid transparent`,
+                                        outline: isSelected ? `2px solid ${lbl.border}` : "none",
+                                        color: "#fff",
+                                        fontWeight: 700,
+                                        fontSize: "13px",
+                                        cursor: "pointer",
+                                        textAlign: "center",
+                                        overflow: "hidden",
+                                        textOverflow: "ellipsis",
+                                        whiteSpace: "nowrap",
+                                        transition: "opacity 0.1s, transform 0.1s",
+                                    }}
+                                    onMouseEnter={(e) => {
+                                        e.currentTarget.style.opacity = "0.85";
+                                        e.currentTarget.style.transform = "scale(1.02)";
+                                    }}
+                                    onMouseLeave={(e) => {
+                                        e.currentTarget.style.opacity = "1";
+                                        e.currentTarget.style.transform = "scale(1)";
+                                    }}
+                                    title={lbl.label}
+                                >
+                                    {lbl.label}
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    {/* Divider + Clear */}
+                    <div style={{
+                        borderTop: "1px solid #e6e9ef",
+                        paddingTop: "8px",
+                    }}>
+                        <div
+                            onClick={() => { onChange(field.columnId, ""); setStatusOpen(false); }}
+                            style={{
+                                padding: "6px 10px",
+                                borderRadius: "4px",
+                                border: "1px solid #d0d4e4",
+                                fontSize: "13px",
+                                color: "#676879",
+                                cursor: "pointer",
+                                textAlign: "center",
+                                backgroundColor: "#f5f6f8",
+                                transition: "background 0.1s",
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.background = "#e8eaf0"}
+                            onMouseLeave={(e) => e.currentTarget.style.background = "#f5f6f8"}
+                        >
+                            — Clear —
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
 // =============================================================
 // PhoneInput Component
 // =============================================================
@@ -1063,11 +1194,23 @@ const App = () => {
             const settings = JSON.parse(column.settings_str);
             const labels = settings.labels || {};
             const labelsColors = settings.labels_colors || {};
-            return Object.keys(labels).map((index) => ({ index, label: labels[index], color: labelsColors[index]?.color || "#ccc" }));
+            const positions = settings.labels_positions_v2 || {};
+            return Object.keys(labels)
+                .map((index) => ({
+                    index,
+                    label: labels[index],
+                    color: labelsColors[index]?.color || "#c4c4c4",
+                    border: labelsColors[index]?.border || "#b0b0b0",
+                    position: positions[index] ?? 999,
+                }))
+                .sort((a, b) => a.position - b.position);
         } catch (e) {
             return [];
         }
     };
+
+    const getSortedByPosition = (items) =>
+    [...items].sort((a, b) => (a.position ?? 999) - (b.position ?? 999));
 
     const getDropdownLabels = (columnId) => {
         const column = getColumnMetadata(columnId);
@@ -1092,14 +1235,12 @@ const App = () => {
             case "status": {
                 const labels = getStatusLabels(field.columnId);
                 return (
-                    <select value={value} onChange={(e) => handleFieldChange(field.columnId, e.target.value)} style={inputStyle}>
-                        <option value="">-- Select {field.label} --</option>
-                        {labels.map((label) => (
-                            <option key={label.index} value={label.index}>
-                                {label.label}
-                            </option>
-                        ))}
-                    </select>
+                    <StatusInput
+                        field={field}
+                        value={value}
+                        labels={labels}
+                        onChange={handleFieldChange}
+                    />
                 );
             }
             case "dropdown": {
