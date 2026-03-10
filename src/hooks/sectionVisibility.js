@@ -191,13 +191,7 @@ export function isSectionVisible(section, userProfile) {
 
     // Evaluate each individual rule
     const ruleResults = rulesList.map((rule) => evaluateSingleRule(rule, userProfile));
-    /*
-    console.log(
-        `[sectionVisibility] Section "${section.id}" — profile: "${normalise(userProfile)}"`,
-        ruleResults.map((r, i) => `rule${i + 1}(${rulesList[i].operator} "${rulesList[i].value}"): ${r}`)
-    );
-    */
-
+    
     // Apply criteria
     const criteriaUpper = String(criteria).trim().toUpperCase();
 

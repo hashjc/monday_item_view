@@ -182,7 +182,6 @@ function RelatedListTable({ childBoard, parentItemId }) {
         if (state.loaded || state.loading) return;
         setState((prev) => ({ ...prev, loading: true, error: null }));
         const result = await fetchRelatedListRecords(childBoard, parentItemId);
-        console.log('Fetch child records ', result?.records);
         setState({
             records: result.records || [],
             loading: false,

@@ -51,7 +51,6 @@ const RELATED_LIST_PAGE_SIZE = 200;
  * @returns {Promise<{ success: boolean, records: Object[], error: string|null }>}
  */
 export async function fetchRelatedListRecords(childBoard, parentItemId) {
-    console.log("Fetch related list records ", childBoard, " parent item id ", parentItemId);
     const { boardId, columnId: relationColumnId, columns: validColumns } = childBoard;
 
     if (!boardId || !relationColumnId || !parentItemId) {
@@ -112,10 +111,9 @@ export async function fetchRelatedListRecords(childBoard, parentItemId) {
         }
 
         const rawItems = response?.data?.boards?.[0]?.items_page?.items || [];
-        console.log('Related list raw items ', rawItems);
+        
         // Build a set of column IDs we actually want to display (from validated config)
         const displayColumnIds = new Set(validColumns.map((c) => c.id));
-        console.log('displayColumnIds ', displayColumnIds);
         // Shape each raw item into a flat record for easy rendering
         const records = rawItems.map((item) => {
             // cells: only include columns that are in the validated display list
@@ -141,7 +139,6 @@ export async function fetchRelatedListRecords(childBoard, parentItemId) {
                 cells,
             };
         });
-        console.log('Fetch related item records , records', records);
         return { success: true, records, error: null };
     } catch (error) {
         console.error("[relatedListService] fetchRelatedListRecords error:", error);

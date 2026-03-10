@@ -14,8 +14,7 @@ export async function fetchMetadataItems(metadataBoardId) {
     }
 
     try {
-        console.log("Fetching all metadata items from board:", metadataBoardId);
-
+        
         // Correct GraphQL query for Monday.com API
         const query = `
             query {
@@ -41,7 +40,6 @@ export async function fetchMetadataItems(metadataBoardId) {
 
         if (response.data && response.data.boards && response.data.boards.length > 0) {
             const items = response.data.boards[0].items_page.items;
-            console.log(`Fetched ${items.length} items from metadata board`);
             return items;
         }
 
@@ -67,8 +65,7 @@ export async function fetchMetadataItemsForBoard(metadataBoardId, targetBoardId)
     }
 
     try {
-        console.log("Fetching metadata items for board:", targetBoardId, "from metadata board:", metadataBoardId);
-
+       
         // First, get the column ID for "Board ID" column
         const columnsQuery = `
             query {
@@ -97,9 +94,6 @@ export async function fetchMetadataItemsForBoard(metadataBoardId, targetBoardId)
             // Fall back to fetching all items
             return fetchMetadataItems(metadataBoardId);
         }
-
-        console.log("Found 'Board ID' column:", boardIdColumn.id);
-
         // Now query items filtered by the Board ID column value
         // Note: items_page with query_params is the correct way to filter in Monday API v2
         const itemsQuery = `
@@ -126,7 +120,6 @@ export async function fetchMetadataItemsForBoard(metadataBoardId, targetBoardId)
 
         if (itemsResponse.data && itemsResponse.data.boards && itemsResponse.data.boards.length > 0) {
             const items = itemsResponse.data.boards[0].items_page.items;
-            console.log(`Fetched ${items.length} filtered items for board ${targetBoardId}`);
             return items;
         }
 
@@ -135,7 +128,6 @@ export async function fetchMetadataItemsForBoard(metadataBoardId, targetBoardId)
     } catch (error) {
         console.error("Error fetching metadata items for board:", error);
         // Fall back to client-side filtering
-        console.log("Falling back to client-side filtering");
         return fetchMetadataItems(metadataBoardId);
     }
 }
@@ -146,7 +138,6 @@ export async function fetchMetadataItemsForBoard(metadataBoardId, targetBoardId)
  */
 export async function fetchBoards() {
     try {
-        console.log("Fetching all boards");
 
         const query = `
             query {
@@ -164,7 +155,6 @@ export async function fetchBoards() {
         const response = await monday.api(query);
 
         if (response.data && response.data.boards) {
-            console.log(`Fetched ${response.data.boards.length} boards`);
             return response.data.boards;
         }
 
@@ -187,8 +177,7 @@ export async function fetchBoardDetails(boardId) {
     }
 
     try {
-        console.log("Fetching board details for:", boardId);
-
+        
         const query = `
             query {
                 boards(ids: [${boardId}]) {

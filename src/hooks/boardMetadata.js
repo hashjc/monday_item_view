@@ -9,8 +9,6 @@ const monday = mondaySdk();
  * @returns {Promise<Object>} { success, error, columns }
  */
 export async function getBoardColumns(boardId) {
-    console.log(`boardMetadata.js Fetching columns for board: ${boardId}`);
-
     // Validate input
     if (!boardId) {
         return {
@@ -77,8 +75,6 @@ export async function getBoardColumns(boardId) {
  * @returns {Promise<Object>} { success, children, error }
  */
 export async function getChildBoards(parentBoardId) {
-    console.log(`[boardMetadata.js] Finding child boards for: ${parentBoardId}`);
-
     if (!parentBoardId) {
         return { success: false, error: "Parent Board ID is required", children: [] };
     }

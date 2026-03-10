@@ -9,8 +9,6 @@ const monday = mondaySdk();
  * * @returns {Promise<Object>} { success, error, boards }
  */
 export async function getAllBoards() {
-    console.log("boards.js [getAllBoards] Fetching all boards for account");
-
     try {
         // We query boards with a limit. You can include workspace details if needed.
         const query = `
@@ -38,7 +36,6 @@ export async function getAllBoards() {
         }
 
         const boards = response.data?.boards || [];
-        console.log(`[getAllBoards] Found ${boards.length} boards in account`);
 
         return {
             success: true,
