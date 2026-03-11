@@ -11,9 +11,9 @@ import { getAllUsers, searchUsersByNameOrEmail } from "./hooks/usersAndTeams";
 import { getUsersProfileName } from "./hooks/userProfiles";
 import { filterVisibleSections } from "./hooks/sectionVisibility";
 import { computeFieldVisibility } from "./layoutControls/fieldVisibility"; // field-level visibility
-
+import { getAccountCountryCode } from "./monday_utils/accountMetadata";
 import { runAllValidationRules } from "./itemValidations/formValidationConfig";
-
+import { DEFAULT_COUNTRY } from "./metadataConfig";
 import RelatedLists from "./components/RelatedLists";
 
 const monday = mondaySdk();
@@ -211,9 +211,9 @@ const StatusInput = ({ field, value, labels, onChange }) => {
 // =============================================================
 // PhoneInput Component
 // =============================================================
-const PhoneInput = ({ columnId, value, onChange, label }) => {
-    const phoneObj = value && typeof value === "object" ? value : { phone: "", countryShortName: "US" };
-    const selectedCode = phoneObj.countryShortName || "US";
+const PhoneInput = ({ columnId, value, onChange, label, defaultCountry = DEFAULT_COUNTRY }) => {
+    const phoneObj = value && typeof value === "object" ? value : { phone: "", countryShortName: defaultCountry };
+    const selectedCode = phoneObj.countryShortName || defaultCountry;
     const phoneNumber = phoneObj.phone || "";
 
     const [countrySearch, setCountrySearch] = useState("");
@@ -647,6 +647,7 @@ const App = () => {
     const [selectedItemId, setSelectedItemId] = useState("");
     const [selectedItem, setSelectedItem] = useState(null);
 
+    const [dirtyFields, setDirtyFields] = useState(new Set());
     // ── Form state ──────────────────────────────────────────────
     const [formData, setFormData] = useState({});
     const [collapsedSections, setCollapsedSections] = useState({});
@@ -663,6 +664,8 @@ const App = () => {
     const [submitting, setSubmitting] = useState(false);
     const [submitStatus, setSubmitStatus] = useState(null);
 
+    const [defaultCountryCode, setDefaultCountryCode] = useState(DEFAULT_COUNTRY); // ← ADD
+    
     // ── Main item lookup (board view update mode) ───────────────
     const [mainItemLookup, setMainItemLookup] = useState({
         items: [],
@@ -714,6 +717,10 @@ const App = () => {
     // =============================================================
     useEffect(() => {
         monday.execute("valueCreatedForUser");
+        // ── Fetch account country for phone field default ──────────
+        getAccountCountryCode().then((code) => {
+            setDefaultCountryCode(code);
+        });
         monday
             .get("context")
             .then((res) => {
@@ -905,6 +912,7 @@ const App = () => {
         setSelectedItemId("");
         setSelectedItem(null);
         setFormData({});
+        setDirtyFields(new Set());
         if (action === "update") fetchBoardItemsForUpdate();
     };
 
@@ -915,6 +923,7 @@ const App = () => {
         if (!itemId) {
             setSelectedItem(null);
             setFormData({});
+            setDirtyFields(new Set()); 
             return;
         }
         try {
@@ -959,7 +968,7 @@ const App = () => {
                             const parsed = JSON.parse(col.value);
                             itemData[col.id] = { phone: parsed.phone || "", countryShortName: parsed.countryShortName || "US" };
                         } catch (e) {
-                            itemData[col.id] = { phone: col.text || "", countryShortName: "US" };
+                            itemData[col.id] = { phone: col.text || "", countryShortName: defaultCountryCode };
                         }
                     } else if (col.type === "checkbox") {
                         itemData[col.id] = col.text === "v" || col.text === "true";
@@ -1024,18 +1033,22 @@ const App = () => {
                     }
                 });
                 setFormData(itemData);
+                setDirtyFields(new Set());
             } else {
                 setSelectedItem(null);
                 setFormData({});
+                setDirtyFields(new Set());
             }
         } catch (error) {
             setSelectedItem(null);
             setFormData({});
+            setDirtyFields(new Set());
         }
     };
 
     const handleFieldChange = (columnId, value) => {
         setFormData((prev) => ({ ...prev, [columnId]: value }));
+        setDirtyFields((prev) => new Set(prev).add(columnId));
     };
 
     const getRelatedBoardIds = (columnId) => {
@@ -1510,7 +1523,7 @@ const App = () => {
                 );
             }
             case "phone":
-                return <PhoneInput columnId={field.columnId} value={value} onChange={handleFieldChange} label={field.label} />;
+                return <PhoneInput columnId={field.columnId} value={value} onChange={handleFieldChange} label={field.label} defaultCountry={defaultCountryCode} />;
             case "name":
             case "text":
                 return (
@@ -1749,7 +1762,7 @@ const App = () => {
             case "phone": {
                 const p = value && typeof value === "object" ? value : null;
                 if (!p || !p.phone || !String(p.phone).trim()) return null;
-                return { phone: String(p.phone).replace(/[\s\-().]/g, ""), countryShortName: p.countryShortName || "US" };
+                return { phone: String(p.phone).replace(/[\s\-().]/g, ""), countryShortName: p.countryShortName || defaultCountryCode };
             }
             case "link": {
                 const l = typeof value === "object" && value !== null ? value : { url: String(value).trim(), text: String(value).trim() };
@@ -1893,6 +1906,7 @@ const isFieldEmpty = (type, val) => {
                     timeout: 5000,
                 });
                 setFormData({});
+                setDirtyFields(new Set());
                 return { success: true, item: createdItem };
             } else throw new Error("Failed to create item");
         } catch (error) {
@@ -1908,6 +1922,9 @@ const isFieldEmpty = (type, val) => {
                 //Skip Name and invisible fields
                 if (columnId === "name") return;
                 if (fieldVisibilityMap[columnId] === false) return;
+                
+                if (!dirtyFields.has(columnId)) return; // ← ONLY submit touched fields
+
                 //Continue with other fields
                 const value = recordValues[columnId] ;
                 const columnMeta = getColumnMetadata(columnId);
@@ -1928,8 +1945,11 @@ const isFieldEmpty = (type, val) => {
                 
             });
 
+            console.log('Modifeid fields ', columnValues);
             // ── 1. Update item name separately if present ──────────
-            const newName = recordValues.name?.trim();
+            //const newName = recordValues.name?.trim();
+            const newName = dirtyFields.has("name") ? recordValues.name?.trim() : null;
+
             if (newName) {
                 const nameMutation = `mutation($boardId: ID!, $itemId: ID!, $newName: String!) {
                 change_simple_column_value(board_id: $boardId item_id: $itemId column_id: "name" value: $newName) { id }
@@ -2031,6 +2051,7 @@ const isFieldEmpty = (type, val) => {
             section.fields.forEach((field) => {
                 if (field.isValid !== true || field.duplicate !== false) return;
                 if (fieldVisibilityMap[field.columnId] === false) return;
+                if (READ_ONLY_COLUMN_TYPES.has(field.type)) return; // ← ADD THIS LINE
                 const isRequired = field.isRequired === true || field.isRequired === "true";
                 if (!isRequired) return;
                 const val = formData[field.columnId];
@@ -2181,7 +2202,7 @@ const isFieldEmpty = (type, val) => {
                         </button>
 
                         {formAction === "create" && (
-                            <button type="button" onClick={() => setFormData({})} className="btn-secondary">
+                            <button type="button" onClick={() => {setFormData({}); setDirtyFields(new Set()); }} className="btn-secondary">
                                 Clear Form
                             </button>
                         )}
