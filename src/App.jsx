@@ -1945,7 +1945,6 @@ const isFieldEmpty = (type, val) => {
                 
             });
 
-            console.log('Modifeid fields ', columnValues);
             // ── 1. Update item name separately if present ──────────
             //const newName = recordValues.name?.trim();
             const newName = dirtyFields.has("name") ? recordValues.name?.trim() : null;
