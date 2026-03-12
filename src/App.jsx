@@ -77,7 +77,7 @@ const PHONE_COUNTRIES = [
 // Add this constant at the top of the file with your other constants
 const READ_ONLY_COLUMN_TYPES = new Set(["formula", "mirror", "subtasks", "item_id", "auto_number", "pulse_id", "creation_log", "last_updated", "auto_number", "doc"]);
 
-const StatusInput = ({ field, value, labels, onChange }) => {
+const StatusInput = ({ field, value, labels, onChange, disabled }) => {
     const [statusOpen, setStatusOpen] = React.useState(false);
     const statusRef = React.useRef(null);
     const selectedLabel = labels.find((l) => String(l.index) === String(value));
@@ -93,30 +93,32 @@ const StatusInput = ({ field, value, labels, onChange }) => {
 
     return (
         <div ref={statusRef} style={{ position: "relative" }}>
-            {/* Trigger */}
             <div
-                onClick={() => setStatusOpen((p) => !p)}
+                onClick={() => { if (!disabled) setStatusOpen((p) => !p); }}  // ← guard
                 style={{
                     padding: "8px 12px",
                     borderRadius: "4px",
                     border: `1px solid ${selectedLabel?.border || "#ccc"}`,
-                    backgroundColor: selectedLabel?.color || "#fff",
-                    color: selectedLabel ? "#fff" : "#999",
+                    backgroundColor: disabled ? "#f5f5f5" : (selectedLabel?.color || "#fff"),  // ← grey when disabled
+                    color: disabled ? "#666" : (selectedLabel ? "#fff" : "#999"),              // ← grey text
                     fontWeight: selectedLabel ? 600 : 400,
                     fontSize: "14px",
-                    cursor: "pointer",
+                    cursor: disabled ? "not-allowed" : "pointer",                              // ← cursor
                     display: "flex",
                     justifyContent: "space-between",
                     alignItems: "center",
                     userSelect: "none",
+                    opacity: disabled ? 0.7 : 1,                                               // ← dimmed
                 }}
             >
                 <span>{selectedLabel?.label || `-- Select ${field.label} --`}</span>
-                <span style={{ fontSize: "11px", opacity: 0.8 }}>{statusOpen ? "▲" : "▼"}</span>
+                {!disabled && (                                                                 // ← hide caret when disabled
+                    <span style={{ fontSize: "11px", opacity: 0.8 }}>{statusOpen ? "▲" : "▼"}</span>
+                )}
             </div>
 
-            {/* Dropdown */}
-            {statusOpen && (
+            {/* Dropdown — never rendered when disabled */}
+            {!disabled && statusOpen && (
                 <div style={{
                     position: "absolute",
                     top: "calc(100% + 4px)",
@@ -130,13 +132,7 @@ const StatusInput = ({ field, value, labels, onChange }) => {
                     zIndex: 10000,
                     padding: "12px",
                 }}>
-                    {/* Label grid — matches monday's native pill layout */}
-                    <div style={{
-                        display: "flex",
-                        flexWrap: "wrap",
-                        gap: "6px",
-                        marginBottom: "10px",
-                    }}>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "10px" }}>
                         {labels.map((lbl) => {
                             const isSelected = String(lbl.index) === String(value);
                             return (
@@ -144,14 +140,12 @@ const StatusInput = ({ field, value, labels, onChange }) => {
                                     key={lbl.index}
                                     onClick={() => { onChange(field.columnId, lbl.index); setStatusOpen(false); }}
                                     style={{
-                                        flex: "0 0 calc(50% - 3px)",   // 2-column grid like monday
+                                        flex: "0 0 calc(50% - 3px)",
                                         boxSizing: "border-box",
                                         padding: "6px 10px",
                                         borderRadius: "4px",
                                         backgroundColor: lbl.color,
-                                        border: isSelected
-                                            ? `2px solid #fff`
-                                            : `2px solid transparent`,
+                                        border: isSelected ? `2px solid #fff` : `2px solid transparent`,
                                         outline: isSelected ? `2px solid ${lbl.border}` : "none",
                                         color: "#fff",
                                         fontWeight: 700,
@@ -163,14 +157,8 @@ const StatusInput = ({ field, value, labels, onChange }) => {
                                         whiteSpace: "nowrap",
                                         transition: "opacity 0.1s, transform 0.1s",
                                     }}
-                                    onMouseEnter={(e) => {
-                                        e.currentTarget.style.opacity = "0.85";
-                                        e.currentTarget.style.transform = "scale(1.02)";
-                                    }}
-                                    onMouseLeave={(e) => {
-                                        e.currentTarget.style.opacity = "1";
-                                        e.currentTarget.style.transform = "scale(1)";
-                                    }}
+                                    onMouseEnter={(e) => { e.currentTarget.style.opacity = "0.85"; e.currentTarget.style.transform = "scale(1.02)"; }}
+                                    onMouseLeave={(e) => { e.currentTarget.style.opacity = "1"; e.currentTarget.style.transform = "scale(1)"; }}
                                     title={lbl.label}
                                 >
                                     {lbl.label}
@@ -178,12 +166,7 @@ const StatusInput = ({ field, value, labels, onChange }) => {
                             );
                         })}
                     </div>
-
-                    {/* Divider + Clear */}
-                    <div style={{
-                        borderTop: "1px solid #e6e9ef",
-                        paddingTop: "8px",
-                    }}>
+                    <div style={{ borderTop: "1px solid #e6e9ef", paddingTop: "8px" }}>
                         <div
                             onClick={() => { onChange(field.columnId, ""); setStatusOpen(false); }}
                             style={{
@@ -211,7 +194,7 @@ const StatusInput = ({ field, value, labels, onChange }) => {
 // =============================================================
 // PhoneInput Component
 // =============================================================
-const PhoneInput = ({ columnId, value, onChange, label, defaultCountry = DEFAULT_COUNTRY }) => {
+const PhoneInput = ({ columnId, value, onChange, label, defaultCountry = DEFAULT_COUNTRY, disabled }) => {
     const phoneObj = value && typeof value === "object" ? value : { phone: "", countryShortName: defaultCountry };
     const selectedCode = phoneObj.countryShortName || defaultCountry;
     const phoneNumber = phoneObj.phone || "";
@@ -243,12 +226,14 @@ const PhoneInput = ({ columnId, value, onChange, label, defaultCountry = DEFAULT
     }, []);
 
     const handleCountrySelect = (country) => {
+        if (disabled) return;  // ← guard
         setDropdownOpen(false);
         setCountrySearch("");
         onChange(columnId, { phone: phoneNumber, countryShortName: country.code });
     };
 
     const handlePhoneChange = (e) => {
+        if (disabled) return;  // ← guard
         const raw = e.target.value.replace(/[^\d\s\-().]/g, "");
         onChange(columnId, { phone: raw, countryShortName: selectedCode });
     };
@@ -257,15 +242,25 @@ const PhoneInput = ({ columnId, value, onChange, label, defaultCountry = DEFAULT
         <div className="phone-input-wrapper" ref={dropdownRef}>
             <div
                 className={`phone-country-trigger ${dropdownOpen ? "open" : ""}`}
-                onClick={() => setDropdownOpen((prev) => !prev)}
+                onClick={() => { if (!disabled) setDropdownOpen((prev) => !prev); }}  // ← guard
                 title={`${selectedCountry.name} (${selectedCountry.dial})`}
+                style={disabled ? { backgroundColor: "#f5f5f5", cursor: "not-allowed", opacity: 0.7 } : {}}  // ← grey
             >
                 <span className="phone-flag">{selectedCountry.flag}</span>
                 <span className="phone-dial">{selectedCountry.dial}</span>
-                <span className="phone-caret">▾</span>
+                {!disabled && <span className="phone-caret">▾</span>}  {/* ← hide caret */}
             </div>
-            <input type="tel" className="phone-number-input" value={phoneNumber} onChange={handlePhoneChange} placeholder={`${label || "Phone"} number`} />
-            {dropdownOpen && (
+            <input
+                type="tel"
+                className="phone-number-input"
+                value={phoneNumber}
+                onChange={handlePhoneChange}
+                placeholder={`${label || "Phone"} number`}
+                disabled={disabled}  // ← disable input
+                style={disabled ? { backgroundColor: "#f5f5f5", cursor: "not-allowed", color: "#666" } : {}}  // ← grey
+            />
+            {/* Dropdown — never rendered when disabled */}
+            {!disabled && dropdownOpen && (
                 <div className="phone-country-dropdown">
                     <div className="phone-country-search-wrapper">
                         <input
@@ -299,7 +294,6 @@ const PhoneInput = ({ columnId, value, onChange, label, defaultCountry = DEFAULT
         </div>
     );
 };
-
 // =============================================================
 // RecordPill Component
 // =============================================================
@@ -1241,8 +1235,10 @@ const App = () => {
     // =============================================================
     const renderField = (field) => {
         const value = formData[field.columnId] !== undefined ? formData[field.columnId] : "";
+        const isReadOnly = field.readOnly === true || field.readOnly === "true";
         const columnMetadata = getColumnMetadata(field.columnId);
         const inputStyle = { padding: "8px 12px", width: "100%", borderRadius: "4px", border: "1px solid #ccc", fontSize: "14px", fontFamily: "inherit" };
+        const readOnlyStyle = { ...inputStyle, backgroundColor: "#f5f5f5", cursor: "not-allowed", color: "#666" };
 
         switch (field.type) {
             case "status": {
@@ -1252,7 +1248,8 @@ const App = () => {
                         field={field}
                         value={value}
                         labels={labels}
-                        onChange={handleFieldChange}
+                        onChange={isReadOnly ? () => {} : handleFieldChange}
+                        disabled={isReadOnly}
                     />
                 );
             }
@@ -1266,7 +1263,8 @@ const App = () => {
                         <select
                             value={dropdownValue[0] || ""}
                             onChange={(e) => handleFieldChange(field.columnId, [parseInt(e.target.value)])}
-                            style={inputStyle}
+                            disabled={isReadOnly}
+                            style={isReadOnly ? readOnlyStyle : inputStyle}
                         >
                             <option value="">-- Select {field.label} --</option>
                             {labels.map((label) => (
@@ -1287,7 +1285,8 @@ const App = () => {
                                     Array.from(e.target.selectedOptions).map((opt) => parseInt(opt.value)),
                                 )
                             }
-                            style={{ ...inputStyle, minHeight: "100px" }}
+                            disabled={isReadOnly}
+                            style={isReadOnly ? { ...readOnlyStyle, minHeight: "100px" } : { ...inputStyle, minHeight: "100px" }}
                         >
                             {labels.map((label) => (
                                 <option key={label.id} value={label.id}>
@@ -1302,12 +1301,14 @@ const App = () => {
             case "board_relation": {
                 const selectedItems = Array.isArray(formData[field.columnId]) ? formData[field.columnId] : [];
                 const lookup = (field.type === "people" ? peopleLookups : relationLookups)[field.columnId] || {};
-                const isOpen = lookup.isOpen || false;
+                const isOpen = !isReadOnly && (lookup.isOpen || false);
                 return (
                     <div className="relation-lookup-container">
                         <div
-                            className={`relation-lookup-trigger ${isOpen ? "open" : ""}`}
+                            className={`relation-lookup-trigger ${isOpen ? "open" : ""} ${isReadOnly ? "disabled" : ""}`}
+                            style={isReadOnly ? { backgroundColor: "#f5f5f5", cursor: "not-allowed", opacity: 0.7 } : {}}
                             onClick={() => {
+                                if (isReadOnly) return;
                                 if (!isOpen) {
                                     if (field.type === "people") loadPeopleLookup(field.columnId);
                                     else loadRelationLookup(field.columnId, getRelatedBoardIds(field.columnId));
@@ -1320,7 +1321,7 @@ const App = () => {
                                         <RecordPill
                                             key={item.id || idx}
                                             label={item.name || `ID: ${item.id || item}`}
-                                            onRemove={() =>
+                                            onRemove={isReadOnly ? () => {} : () =>
                                                 handleFieldChange(
                                                     field.columnId,
                                                     selectedItems.filter((_, i) => i !== idx),
@@ -1510,20 +1511,33 @@ const App = () => {
                             value={emailVal.email || ""}
                             onChange={(e) => handleFieldChange(field.columnId, { ...emailVal, email: e.target.value })}
                             placeholder={`Enter ${field.label}`}
-                            style={inputStyle}
+                            readOnly={isReadOnly}
+                            disabled={isReadOnly}
+                            style={isReadOnly ? readOnlyStyle : inputStyle}
                         />
                         <input
                             type="text"
                             value={emailVal.text || ""}
                             onChange={(e) => handleFieldChange(field.columnId, { ...emailVal, text: e.target.value })}
                             placeholder="Display label (optional)"
-                            style={{ ...inputStyle, fontSize: "12px" }}
+                            readOnly={isReadOnly}
+                            disabled={isReadOnly}
+                            style={isReadOnly ? { ...readOnlyStyle, fontSize: "12px" } : { ...inputStyle, fontSize: "12px" }}
                         />
                     </div>
                 );
             }
             case "phone":
-                return <PhoneInput columnId={field.columnId} value={value} onChange={handleFieldChange} label={field.label} defaultCountry={defaultCountryCode} />;
+                return (
+                    <PhoneInput
+                        columnId={field.columnId}
+                        value={value}
+                        onChange={isReadOnly ? () => {} : handleFieldChange}
+                        label={field.label}
+                        defaultCountry={defaultCountryCode}
+                        disabled={isReadOnly}
+                    />
+                );
             case "name":
             case "text":
                 return (
@@ -1532,7 +1546,9 @@ const App = () => {
                         value={value}
                         onChange={(e) => handleFieldChange(field.columnId, e.target.value)}
                         placeholder={`Enter ${field.label}`}
-                        style={inputStyle}
+                        readOnly={isReadOnly}
+                        disabled={isReadOnly}
+                        style={isReadOnly ? readOnlyStyle : inputStyle}
                     />
                 );
             case "long_text":
@@ -1542,7 +1558,9 @@ const App = () => {
                         onChange={(e) => handleFieldChange(field.columnId, e.target.value)}
                         placeholder={`Enter ${field.label}`}
                         rows={4}
-                        style={{ ...inputStyle, resize: "vertical" }}
+                        readOnly={isReadOnly}
+                        disabled={isReadOnly}
+                        style={isReadOnly ? { ...readOnlyStyle, resize: "none" } : { ...inputStyle, resize: "vertical" }}
                     />
                 );
             case "numbers":
@@ -1552,18 +1570,30 @@ const App = () => {
                         value={value}
                         onChange={(e) => handleFieldChange(field.columnId, e.target.value)}
                         placeholder={`Enter ${field.label}`}
-                        style={inputStyle}
+                        readOnly={isReadOnly}
+                        disabled={isReadOnly}
+                        style={isReadOnly ? readOnlyStyle : inputStyle}
                     />
                 );
             case "date":
-                return <input type="date" value={value} onChange={(e) => handleFieldChange(field.columnId, e.target.value)} style={inputStyle} />;
+                return (
+                    <input
+                        type="date"
+                        value={value}
+                        onChange={(e) => handleFieldChange(field.columnId, e.target.value)}
+                        readOnly={isReadOnly}
+                        disabled={isReadOnly}
+                        style={isReadOnly ? readOnlyStyle : inputStyle}
+                    />
+                );
             case "checkbox":
                 return (
-                    <label style={{ display: "flex", alignItems: "center", cursor: "pointer" }}>
+                    <label style={{ display: "flex", alignItems: "center", cursor: isReadOnly ? "not-allowed" : "pointer", opacity: isReadOnly ? 0.6 : 1 }}>
                         <input
                             type="checkbox"
                             checked={value === "true" || value === true}
                             onChange={(e) => handleFieldChange(field.columnId, e.target.checked)}
+                            disabled={isReadOnly}
                             style={{ marginRight: "8px" }}
                         />
                         <span>Yes</span>
@@ -1594,20 +1624,34 @@ const App = () => {
                             value={linkVal.url}
                             onChange={(e) => handleFieldChange(field.columnId, { ...linkVal, url: e.target.value })}
                             placeholder="https://example.com"
-                            style={inputStyle}
+                            readOnly={isReadOnly}
+                            disabled={isReadOnly}
+                            style={isReadOnly ? readOnlyStyle : inputStyle}
                         />
                         <input
                             type="text"
                             value={linkVal.text}
                             onChange={(e) => handleFieldChange(field.columnId, { ...linkVal, text: e.target.value })}
                             placeholder="Link label (optional)"
-                            style={{ ...inputStyle, fontSize: "12px" }}
+                            readOnly={isReadOnly}
+                            disabled={isReadOnly}
+                            style={isReadOnly ? { ...readOnlyStyle, fontSize: "12px" } : { ...inputStyle, fontSize: "12px" }}
                         />
                     </div>
                 );
             }
             case "file":
-                return (
+                // FileUpload has no meaningful read-only state via the API,
+                // but we can block the UI by not rendering it when read-only
+                return isReadOnly ? (
+                    <input
+                        type="text"
+                        value="(File upload disabled)"
+                        readOnly
+                        disabled
+                        style={readOnlyStyle}
+                    />
+                ) : (
                     <FileUpload
                         columnId={field.columnId}
                         value={formData[field.columnId]}
@@ -1627,7 +1671,9 @@ const App = () => {
                                 type="date"
                                 value={tlVal.from || ""}
                                 onChange={(e) => handleFieldChange(field.columnId, { ...tlVal, from: e.target.value })}
-                                style={inputStyle}
+                                readOnly={isReadOnly}
+                                disabled={isReadOnly}
+                                style={isReadOnly ? readOnlyStyle : inputStyle}
                             />
                         </div>
                         <span className="timeline-arrow">→</span>
@@ -1638,14 +1684,19 @@ const App = () => {
                                 value={tlVal.to || ""}
                                 min={tlVal.from || undefined}
                                 onChange={(e) => handleFieldChange(field.columnId, { ...tlVal, to: e.target.value })}
-                                style={inputStyle}
+                                readOnly={isReadOnly}
+                                disabled={isReadOnly}
+                                style={isReadOnly ? readOnlyStyle : inputStyle}
                             />
                         </div>
-                        {tlVal.from && tlVal.to && tlVal.to < tlVal.from && <div className="timeline-error">End date must be after start date</div>}
+                        {!isReadOnly && tlVal.from && tlVal.to && tlVal.to < tlVal.from && (
+                            <div className="timeline-error">End date must be after start date</div>
+                        )}
                     </div>
                 );
             }
             case "doc": {
+                // doc is always read-only by nature — no change needed here
                 const docVal = value && typeof value === "object" ? value : null;
                 const docName = docVal?.name || null;
                 const docLink = docVal?.linkToFile || null;
@@ -1689,7 +1740,9 @@ const App = () => {
                         value={value}
                         onChange={(e) => handleFieldChange(field.columnId, e.target.value)}
                         placeholder={`Enter ${field.label}`}
-                        style={inputStyle}
+                        readOnly={isReadOnly}
+                        disabled={isReadOnly}
+                        style={isReadOnly ? readOnlyStyle : inputStyle}
                     />
                 );
         }
@@ -1871,6 +1924,12 @@ const isFieldEmpty = (type, val) => {
    };
 
     const createItem = async (recordValues) => {
+        const fieldReadOnlyMap = {};
+        visibleSections.forEach(section => {
+            (section.fields || []).forEach(field => {
+                fieldReadOnlyMap[field.columnId] = field.readOnly === true || field.readOnly === "true";
+            });
+        });
         try {
             const itemName = recordValues.name || "New Item";
             const columnValues = {};
@@ -1880,11 +1939,13 @@ const isFieldEmpty = (type, val) => {
                 if (fieldVisibilityMap[columnId] === false) {
                     return;
                 }
+                if (fieldReadOnlyMap[columnId]) return;
                 //Continue with other fields
                 const value = recordValues[columnId];
                 const columnMeta = getColumnMetadata(columnId);
                 if (!columnMeta || columnMeta.type === "file") return;
-                 if (READ_ONLY_COLUMN_TYPES.has(columnMeta.type)) return;
+                if (READ_ONLY_COLUMN_TYPES.has(columnMeta.type)) return;
+                
                 const isEmpty =
                     value === "" || value === null || value === undefined || (typeof value === "object" && !Array.isArray(value) && value.phone === "");
                 if (isEmpty) return;
@@ -1916,13 +1977,21 @@ const isFieldEmpty = (type, val) => {
     };
 
     const updateItem = async (itemId, recordValues) => {
+        const fieldReadOnlyMap = {};
+        visibleSections.forEach(section => {
+            (section.fields || []).forEach(field => {
+                fieldReadOnlyMap[field.columnId] = field.readOnly === true || field.readOnly === "true";
+            });
+        });
+
         try {
             const columnValues = {};
             Object.keys(recordValues).forEach((columnId) => {
                 //Skip Name and invisible fields
                 if (columnId === "name") return;
                 if (fieldVisibilityMap[columnId] === false) return;
-                
+                if (fieldReadOnlyMap[columnId]) return;
+
                 if (!dirtyFields.has(columnId)) return; // ← ONLY submit touched fields
 
                 //Continue with other fields
@@ -2052,7 +2121,10 @@ const isFieldEmpty = (type, val) => {
                 if (fieldVisibilityMap[field.columnId] === false) return;
                 if (READ_ONLY_COLUMN_TYPES.has(field.type)) return; // ← ADD THIS LINE
                 const isRequired = field.isRequired === true || field.isRequired === "true";
-                if (!isRequired) return;
+                //if (!isRequired) return;
+                // TO THIS:
+                const isReadOnly = field.readOnly === true || field.readOnly === "true";
+                if (!isRequired || isReadOnly) return;  
                 const val = formData[field.columnId];
                 const isEmpty =
                     val === "" || val === null || val === undefined ||

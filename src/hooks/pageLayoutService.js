@@ -358,6 +358,82 @@ async function validateChildBoards(plsRecord, parentBoardId) {
 
 // ─── Main retrieval function ──────────────────────────────────────────────────
 
+export async function retrieveAllPageLayoutsForBoard(boardId) {
+    if (!boardId || !PAGELAYOUTSECTIONS_BOARD_ID) {
+        return {
+            success: false,
+            error: "Missing Board IDs",
+            items: [],
+            validatedSections: [],
+            validationSummary: null,
+            validatedChildBoards: [],
+        };
+    }
+
+    
+    // Step 1: Resolve filter column ID
+    const colMap = await getBoardColumnIdsByTitles(PAGELAYOUTSECTIONS_BOARD_ID, [PAGELAYOUT_COL_TITLE_BOARDID]);
+    const boardIdColId = colMap[PAGELAYOUT_COL_TITLE_BOARDID];
+
+    if (!boardIdColId) {
+        throw new Error(`Filter column "${PAGELAYOUT_COL_TITLE_BOARDID}" not found in PageLayout board`);
+    }
+
+    // Step 2: Fetch the PLS record for this board
+    const query = `
+        query {
+            boards(ids: [${PAGELAYOUTSECTIONS_BOARD_ID}]) {
+                items_page(
+                    limit: ${int(LIMIT)},
+                    query_params: {
+                        rules: [{
+                            column_id: "${boardIdColId}",
+                            compare_value: ["${boardId}"],
+                            operator: any_of
+                        }]
+                    }
+                ) {
+                    cursor
+                    items {
+                        id
+                        name
+                        column_values {
+                            id
+                            text
+                            value
+                            column { title type }
+                            ... on BoardRelationValue { linked_item_ids display_value }
+                            ... on MirrorValue { display_value }
+                        }
+                    }
+                }
+            }
+        }
+    `;
+
+    const response = await monday.api(query);
+    if (response.errors) {
+        throw new Error(response.errors[0]?.message || "GraphQL error");
+    }
+
+    const items = response?.data?.boards?.[0]?.items_page?.items || [];
+    
+    if (items.length === 0) {
+        return {
+            success: true,
+            pageLayouts: [],
+            validatedSections: [],
+            validationSummary: { totalSections: 0, fullyValidSections: 0 },
+            validatedChildBoards: [],
+            error: null,
+        };
+    }
+
+    if (items.length > 1) {
+        console.warn(`[PageLayoutService] Expected 1 PLS record for board ${boardId}, ` + `found ${items.length}. Using first.`);
+    }
+    return items;
+}
 /**
  * Retrieve and validate the page layout for a given board.
  *
