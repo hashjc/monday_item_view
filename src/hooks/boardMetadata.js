@@ -168,7 +168,3 @@ async function getAllBoardsWithColumns() {
         return { success: false, error: err.message, boards: [] };
     }
 }
-
-// Example Usage:
-// const results = getChildBoards("123456789", apiResponse.data.boards);
-// console.log(results);
