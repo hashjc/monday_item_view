@@ -634,6 +634,8 @@ const App = () => {
     const [selectedBoardName, setSelectedBoardName] = useState("");
     const [formAction, setFormAction] = useState("create");
 
+    const [boardSearch, setBoardSearch] = useState("");
+    
     // ── Item selection ──────────────────────────────────────────
     const [boardItems, setBoardItems] = useState([]);
     const [loadingItems, setLoadingItems] = useState(false);
@@ -1931,8 +1933,7 @@ const isFieldEmpty = (type, val) => {
             });
         });
         try {
-
-            const itemName = recordValues.name || "New Item";
+            const itemName = recordValues?.name ?? null;
             const columnValues = {};
             Object.keys(recordValues).forEach((columnId) => {
                 //Skip Name and invisible fields
@@ -1978,7 +1979,7 @@ const isFieldEmpty = (type, val) => {
             if (error.data && error.data.errors && error.data.errors.length > 0) {
                 let allErrorMessages = "";
                 error.data.errors.forEach((errTemp) => {
-                    allErrorMessages += " " + errTemp?.message ?? "";
+                    allErrorMessages += " " + errTemp?.message;
                 });
                 displayMessage += " " + allErrorMessages;
             } else {
@@ -2070,7 +2071,7 @@ const isFieldEmpty = (type, val) => {
             if (error.data && error.data.errors && error.data.errors.length > 0) {
                 let allErrorMessages = "";
                 error.data.errors.forEach((errTemp) => {
-                    allErrorMessages += " " + errTemp?.message ?? "";
+                    allErrorMessages += " " + errTemp?.message;
                 });
                 displayMessage += " " + allErrorMessages;
             } else {
@@ -2331,27 +2332,106 @@ const isFieldEmpty = (type, val) => {
             {!boardId ? (
                 <div className="board-selector">
                     <label>Select a board to continue:</label>
-                    <select
-                        onChange={(e) => {
-                            const chosenId = e.target.value;
-                            setBoardId(chosenId);
-                            const chosen = boards.find((b) => String(b.id) === chosenId);
-                            setSelectedBoardName(chosen ? chosen.name : "");
+
+                    {/* Search input */}
+                    <input
+                        type="text"
+                        placeholder="Search boards..."
+                        value={boardSearch}
+                        onChange={(e) => setBoardSearch(e.target.value)}
+                        style={{
+                            width: "100%",
+                            padding: "8px 12px",
+                            border: "1px solid #ccc",
+                            borderRadius: "4px",
+                            fontSize: "14px",
+                            fontFamily: "inherit",
+                            marginBottom: "6px",
+                            boxSizing: "border-box",
                         }}
-                        defaultValue=""
-                    >
-                        <option value="" disabled>
-                            -- choose a board --
-                        </option>
-                        {boards.map((b) => {
-                            const ws = b.workspace && b.workspace.name ? b.workspace.name : "";
-                            return (
-                                <option key={b.id} value={b.id}>
-                                    {ws ? `${b.name} (${ws})` : b.name}
-                                </option>
-                            );
-                        })}
-                    </select>
+                        autoFocus
+                    />
+
+                    {/* Grouped board list */}
+                    <div style={{
+                        border: "1px solid #d0d4e4",
+                        borderRadius: "4px",
+                        maxHeight: "320px",
+                        overflowY: "auto",
+                        backgroundColor: "#fff",
+                    }}>
+                        {(() => {
+                            // Filter boards by search term
+                            const q = boardSearch.trim().toLowerCase();
+                            const filtered = q
+                                ? boards.filter(
+                                    (b) =>
+                                        b.name.toLowerCase().includes(q) ||
+                                        (b.workspace?.name || "").toLowerCase().includes(q)
+                                )
+                                : boards;
+
+                            if (filtered.length === 0) {
+                                return (
+                                    <div style={{ padding: "12px 16px", color: "#adb5c3", fontSize: "13px", fontStyle: "italic" }}>
+                                        No boards found
+                                    </div>
+                                );
+                            }
+
+                            // Group by workspace
+                            const grouped = filtered.reduce((acc, b) => {
+                                const ws = b.workspace?.name || "No Workspace";
+                                if (!acc[ws]) acc[ws] = [];
+                                acc[ws].push(b);
+                                return acc;
+                            }, {});
+
+                            return Object.entries(grouped).map(([wsName, wsBoards]) => (
+                                <div key={wsName}>
+                                    {/* Workspace header */}
+                                    <div style={{
+                                        padding: "6px 12px",
+                                        fontSize: "11px",
+                                        fontWeight: 700,
+                                        textTransform: "uppercase",
+                                        letterSpacing: "0.5px",
+                                        color: "#676879",
+                                        backgroundColor: "#f6f7fb",
+                                        borderBottom: "1px solid #e5e7ef",
+                                        position: "sticky",
+                                        top: 0,
+                                    }}>
+                                        {wsName}
+                                    </div>
+
+                                    {/* Boards in this workspace */}
+                                    {wsBoards.map((b) => (
+                                        <div
+                                            key={b.id}
+                                            onClick={() => {
+                                                setBoardId(String(b.id));
+                                                setSelectedBoardName(b.name);
+                                                setBoardSearch("");
+                                            }}
+                                            style={{
+                                                padding: "9px 16px",
+                                                fontSize: "14px",
+                                                color: "#323338",
+                                                cursor: "pointer",
+                                                borderBottom: "1px solid #f0f2f5",
+                                                transition: "background 0.1s",
+                                            }}
+                                            onMouseEnter={(e) => e.currentTarget.style.background = "#f0f4ff"}
+                                            onMouseLeave={(e) => e.currentTarget.style.background = "#fff"}
+                                        >
+                                            {b.name}
+                                        </div>
+                                    ))}
+                                </div>
+                            ));
+                        })()}
+                    </div>
                 </div>
             ) : (
                 <div className="main-content">
