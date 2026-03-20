@@ -1924,6 +1924,7 @@ const isFieldEmpty = (type, val) => {
    };
 
     const createItem = async (recordValues) => {
+        console.log("Create item stwrt");
         const fieldReadOnlyMap = {};
         visibleSections.forEach(section => {
             (section.fields || []).forEach(field => {
@@ -1931,6 +1932,7 @@ const isFieldEmpty = (type, val) => {
             });
         });
         try {
+
             const itemName = recordValues.name || "New Item";
             const columnValues = {};
             Object.keys(recordValues).forEach((columnId) => {
@@ -1952,9 +1954,13 @@ const isFieldEmpty = (type, val) => {
                 const formatted = formatColumnValue(columnId, value, columnMeta);
                 if (formatted !== null) columnValues[columnId] = formatted;
             });
+            console.log("Create item stwrt 2 ", columnValues);
 
             const mutation = `mutation($boardId: ID!, $itemName: String!, $columnValues: JSON!) { create_item(board_id: $boardId item_name: $itemName column_values: $columnValues) { id name } }`;
+            console.log("Create item = Mutation ", mutation);
             const response = await monday.api(mutation, { variables: { boardId, itemName, columnValues: JSON.stringify(columnValues) } });
+            
+            console.log("Create item = response ", response);
             if (response.data && response.data.create_item) {
                 const createdItem = response.data.create_item;
                 const fileErrors = (await uploadPendingFiles(createdItem.id, recordValues)).filter((r) => !r.success);
@@ -1971,6 +1977,7 @@ const isFieldEmpty = (type, val) => {
                 return { success: true, item: createdItem };
             } else throw new Error("Failed to create item");
         } catch (error) {
+            console.log('Error in create item ', error);
             monday.execute("notice", { message: `Error creating item: ${error.message}`, type: "error", timeout: 5000 });
             return { success: false, error: error.message };
         }
