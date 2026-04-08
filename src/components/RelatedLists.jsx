@@ -177,6 +177,9 @@ function RelatedListTable({ childBoard, parentItemId }) {
     const [isExpanded, setIsExpanded]   = useState(false);
     const [actionError, setActionError] = useState(null); // surfaces edit/delete errors
 
+    // ── Sorting State ──
+    const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
+
     // ── Load records (lazy, cached) ────────────────────────────
     const loadRecords = useCallback(async () => {
         if (state.loaded || state.loading) return;
@@ -201,6 +204,7 @@ function RelatedListTable({ childBoard, parentItemId }) {
         setState({ records: [], loading: false, loaded: false, error: null });
         setIsExpanded(false);
         setActionError(null);
+        setSortConfig({ key: null, direction: 'asc' }); // Reset sort on record change
     }, [parentItemId, childBoard.boardId]);
 
     // ── Optimistic delete — remove from local state immediately ──
@@ -217,6 +221,64 @@ function RelatedListTable({ childBoard, parentItemId }) {
     const displayCols = nameCol ? [nameCol, ...otherCols] : otherCols;
 
     const recordCount = state.loaded ? state.records.length : null;
+
+    // ── Sorting Logic ───────────────────────────────────────────
+    const requestSort = (key) => {
+        let direction = 'asc';
+        if (sortConfig.key === key && sortConfig.direction === 'asc') {
+            direction = 'desc';
+        }
+        setSortConfig({ key, direction });
+    };
+
+    const sortedRecords = React.useMemo(() => {
+        let sortableItems = [...state.records];
+        if (sortConfig.key !== null) {
+            sortableItems.sort((a, b) => {
+                let aVal, bVal, type;
+
+                // Extract values based on column type (name is root, others in cells)
+                if (sortConfig.key === "name") {
+                    aVal = a.name || "";
+                    bVal = b.name || "";
+                    type = "text";
+                } else {
+                    const aCell = a.cells[sortConfig.key];
+                    const bCell = b.cells[sortConfig.key];
+                    aVal = aCell?.text || "";
+                    bVal = bCell?.text || "";
+                    type = aCell?.type || "text";
+                }
+
+                // Type-specific sorting logic
+                if (type === "numbers" || type === "numeric") {
+                    const numA = parseFloat(aVal);
+                    const numB = parseFloat(bVal);
+                    const isNumA = !isNaN(numA);
+                    const isNumB = !isNaN(numB);
+                    
+                    if (isNumA && isNumB) {
+                        return sortConfig.direction === 'asc' ? numA - numB : numB - numA;
+                    }
+                    if (isNumA && !isNumB) return sortConfig.direction === 'asc' ? -1 : 1;
+                    if (!isNumA && isNumB) return sortConfig.direction === 'asc' ? 1 : -1;
+                } else if (type === "date" || type === "timeline") {
+                    const dateA = new Date(aVal).getTime() || 0;
+                    const dateB = new Date(bVal).getTime() || 0;
+                    return sortConfig.direction === 'asc' ? dateA - dateB : dateB - dateA;
+                }
+
+                // Default string sorting (fallback for text, status, drop-downs, etc.)
+                const strA = String(aVal || "").toLowerCase();
+                const strB = String(bVal || "").toLowerCase();
+                
+                if (strA < strB) return sortConfig.direction === 'asc' ? -1 : 1;
+                if (strA > strB) return sortConfig.direction === 'asc' ? 1 : -1;
+                return 0;
+            });
+        }
+        return sortableItems;
+    }, [state.records, sortConfig]);
 
     return (
         <div className="rl-child-section">
@@ -274,17 +336,30 @@ function RelatedListTable({ childBoard, parentItemId }) {
                             <table className="rl-table">
                                 <thead>
                                     <tr>
-                                        {displayCols.map((col) => (
-                                            <th key={col.id} className="rl-th">
-                                                {col.title}
-                                            </th>
-                                        ))}
+                                        {displayCols.map((col) => {
+                                            const isSorted = sortConfig.key === col.id;
+                                            return (
+                                                <th 
+                                                    key={col.id} 
+                                                    className={`rl-th rl-th-sortable ${isSorted ? 'active-sort' : ''}`}
+                                                    onClick={() => requestSort(col.id)}
+                                                >
+                                                    <div className="rl-th-content">
+                                                        <span>{col.title}</span>
+                                                        <span className="rl-sort-icon">
+                                                            {isSorted && sortConfig.direction === 'desc' ? '▼' : '▲'}
+                                                        </span>
+                                                    </div>
+                                                </th>
+                                            );
+                                        })}
                                         {/* Empty header for the action column */}
                                         <th className="rl-th rl-th-actions" aria-label="Actions" />
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {state.records.map((record) => (
+                                    {/* ── Use sortedRecords here instead of state.records ── */}
+                                    {sortedRecords.map((record) => (
                                         <tr key={record.id} className="rl-tr">
                                             {displayCols.map((col) => {
                                                 if (col.id === "name") {
@@ -327,7 +402,6 @@ function RelatedListTable({ childBoard, parentItemId }) {
         </div>
     );
 }
-
 // ─── CellRenderer ─────────────────────────────────────────────────────────────
 
 function CellRenderer({ value, type }) {

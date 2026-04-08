@@ -11,10 +11,13 @@ import { getAllUsers, searchUsersByNameOrEmail } from "./hooks/usersAndTeams";
 import { getUsersProfileName } from "./hooks/userProfiles";
 import { filterVisibleSections } from "./hooks/sectionVisibility";
 import { computeFieldVisibility } from "./layoutControls/fieldVisibility"; // field-level visibility
+import { applyLookupFilters } from "./hooks/lookupFilters";
+
 import { getAccountCountryCode } from "./monday_utils/accountMetadata";
 import { runAllValidationRules } from "./itemValidations/formValidationConfig";
 import { DEFAULT_COUNTRY } from "./metadataConfig";
 import RelatedLists from "./components/RelatedLists";
+import { filter } from "selenium-webdriver/lib/promise";
 
 const monday = mondaySdk();
 
@@ -75,7 +78,18 @@ const PHONE_COUNTRIES = [
 ];
 
 // Add this constant at the top of the file with your other constants
-const READ_ONLY_COLUMN_TYPES = new Set(["formula", "mirror", "subtasks", "item_id", "auto_number", "pulse_id", "creation_log", "last_updated", "auto_number", "doc"]);
+const READ_ONLY_COLUMN_TYPES = new Set([
+    "formula",
+    "mirror",
+    "subtasks",
+    "item_id",
+    "auto_number",
+    "pulse_id",
+    "creation_log",
+    "last_updated",
+    "auto_number",
+    "doc",
+]);
 
 const StatusInput = ({ field, value, labels, onChange, disabled }) => {
     const [statusOpen, setStatusOpen] = React.useState(false);
@@ -84,8 +98,7 @@ const StatusInput = ({ field, value, labels, onChange, disabled }) => {
 
     React.useEffect(() => {
         const handler = (e) => {
-            if (statusRef.current && !statusRef.current.contains(e.target))
-                setStatusOpen(false);
+            if (statusRef.current && !statusRef.current.contains(e.target)) setStatusOpen(false);
         };
         document.addEventListener("mousedown", handler);
         return () => document.removeEventListener("mousedown", handler);
@@ -94,51 +107,58 @@ const StatusInput = ({ field, value, labels, onChange, disabled }) => {
     return (
         <div ref={statusRef} style={{ position: "relative" }}>
             <div
-                onClick={() => { if (!disabled) setStatusOpen((p) => !p); }}  // ← guard
+                onClick={() => {
+                    if (!disabled) setStatusOpen((p) => !p);
+                }} // ← guard
                 style={{
                     padding: "8px 12px",
                     borderRadius: "4px",
                     border: `1px solid ${selectedLabel?.border || "#ccc"}`,
-                    backgroundColor: disabled ? "#f5f5f5" : (selectedLabel?.color || "#fff"),  // ← grey when disabled
-                    color: disabled ? "#666" : (selectedLabel ? "#fff" : "#999"),              // ← grey text
+                    backgroundColor: disabled ? "#f5f5f5" : selectedLabel?.color || "#fff", // ← grey when disabled
+                    color: disabled ? "#666" : selectedLabel ? "#fff" : "#999", // ← grey text
                     fontWeight: selectedLabel ? 600 : 400,
                     fontSize: "14px",
-                    cursor: disabled ? "not-allowed" : "pointer",                              // ← cursor
+                    cursor: disabled ? "not-allowed" : "pointer", // ← cursor
                     display: "flex",
                     justifyContent: "space-between",
                     alignItems: "center",
                     userSelect: "none",
-                    opacity: disabled ? 0.7 : 1,                                               // ← dimmed
+                    opacity: disabled ? 0.7 : 1, // ← dimmed
                 }}
             >
                 <span>{selectedLabel?.label || `-- Select ${field.label} --`}</span>
-                {!disabled && (                                                                 // ← hide caret when disabled
+                {!disabled && ( // ← hide caret when disabled
                     <span style={{ fontSize: "11px", opacity: 0.8 }}>{statusOpen ? "▲" : "▼"}</span>
                 )}
             </div>
 
             {/* Dropdown — never rendered when disabled */}
             {!disabled && statusOpen && (
-                <div style={{
-                    position: "absolute",
-                    top: "calc(100% + 4px)",
-                    left: 0,
-                    minWidth: "280px",
-                    maxWidth: "420px",
-                    background: "#fff",
-                    border: "1px solid #d0d4e4",
-                    borderRadius: "8px",
-                    boxShadow: "0 8px 24px rgba(0,0,0,0.15)",
-                    zIndex: 10000,
-                    padding: "12px",
-                }}>
+                <div
+                    style={{
+                        position: "absolute",
+                        top: "calc(100% + 4px)",
+                        left: 0,
+                        minWidth: "280px",
+                        maxWidth: "420px",
+                        background: "#fff",
+                        border: "1px solid #d0d4e4",
+                        borderRadius: "8px",
+                        boxShadow: "0 8px 24px rgba(0,0,0,0.15)",
+                        zIndex: 10000,
+                        padding: "12px",
+                    }}
+                >
                     <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "10px" }}>
                         {labels.map((lbl) => {
                             const isSelected = String(lbl.index) === String(value);
                             return (
                                 <div
                                     key={lbl.index}
-                                    onClick={() => { onChange(field.columnId, lbl.index); setStatusOpen(false); }}
+                                    onClick={() => {
+                                        onChange(field.columnId, lbl.index);
+                                        setStatusOpen(false);
+                                    }}
                                     style={{
                                         flex: "0 0 calc(50% - 3px)",
                                         boxSizing: "border-box",
@@ -157,8 +177,14 @@ const StatusInput = ({ field, value, labels, onChange, disabled }) => {
                                         whiteSpace: "nowrap",
                                         transition: "opacity 0.1s, transform 0.1s",
                                     }}
-                                    onMouseEnter={(e) => { e.currentTarget.style.opacity = "0.85"; e.currentTarget.style.transform = "scale(1.02)"; }}
-                                    onMouseLeave={(e) => { e.currentTarget.style.opacity = "1"; e.currentTarget.style.transform = "scale(1)"; }}
+                                    onMouseEnter={(e) => {
+                                        e.currentTarget.style.opacity = "0.85";
+                                        e.currentTarget.style.transform = "scale(1.02)";
+                                    }}
+                                    onMouseLeave={(e) => {
+                                        e.currentTarget.style.opacity = "1";
+                                        e.currentTarget.style.transform = "scale(1)";
+                                    }}
                                     title={lbl.label}
                                 >
                                     {lbl.label}
@@ -168,7 +194,10 @@ const StatusInput = ({ field, value, labels, onChange, disabled }) => {
                     </div>
                     <div style={{ borderTop: "1px solid #e6e9ef", paddingTop: "8px" }}>
                         <div
-                            onClick={() => { onChange(field.columnId, ""); setStatusOpen(false); }}
+                            onClick={() => {
+                                onChange(field.columnId, "");
+                                setStatusOpen(false);
+                            }}
                             style={{
                                 padding: "6px 10px",
                                 borderRadius: "4px",
@@ -180,8 +209,8 @@ const StatusInput = ({ field, value, labels, onChange, disabled }) => {
                                 backgroundColor: "#f5f6f8",
                                 transition: "background 0.1s",
                             }}
-                            onMouseEnter={(e) => e.currentTarget.style.background = "#e8eaf0"}
-                            onMouseLeave={(e) => e.currentTarget.style.background = "#f5f6f8"}
+                            onMouseEnter={(e) => (e.currentTarget.style.background = "#e8eaf0")}
+                            onMouseLeave={(e) => (e.currentTarget.style.background = "#f5f6f8")}
                         >
                             — Clear —
                         </div>
@@ -226,14 +255,14 @@ const PhoneInput = ({ columnId, value, onChange, label, defaultCountry = DEFAULT
     }, []);
 
     const handleCountrySelect = (country) => {
-        if (disabled) return;  // ← guard
+        if (disabled) return; // ← guard
         setDropdownOpen(false);
         setCountrySearch("");
         onChange(columnId, { phone: phoneNumber, countryShortName: country.code });
     };
 
     const handlePhoneChange = (e) => {
-        if (disabled) return;  // ← guard
+        if (disabled) return; // ← guard
         const raw = e.target.value.replace(/[^\d\s\-().]/g, "");
         onChange(columnId, { phone: raw, countryShortName: selectedCode });
     };
@@ -242,13 +271,15 @@ const PhoneInput = ({ columnId, value, onChange, label, defaultCountry = DEFAULT
         <div className="phone-input-wrapper" ref={dropdownRef}>
             <div
                 className={`phone-country-trigger ${dropdownOpen ? "open" : ""}`}
-                onClick={() => { if (!disabled) setDropdownOpen((prev) => !prev); }}  // ← guard
+                onClick={() => {
+                    if (!disabled) setDropdownOpen((prev) => !prev);
+                }} // ← guard
                 title={`${selectedCountry.name} (${selectedCountry.dial})`}
-                style={disabled ? { backgroundColor: "#f5f5f5", cursor: "not-allowed", opacity: 0.7 } : {}}  // ← grey
+                style={disabled ? { backgroundColor: "#f5f5f5", cursor: "not-allowed", opacity: 0.7 } : {}} // ← grey
             >
                 <span className="phone-flag">{selectedCountry.flag}</span>
                 <span className="phone-dial">{selectedCountry.dial}</span>
-                {!disabled && <span className="phone-caret">▾</span>}  {/* ← hide caret */}
+                {!disabled && <span className="phone-caret">▾</span>} {/* ← hide caret */}
             </div>
             <input
                 type="tel"
@@ -256,8 +287,8 @@ const PhoneInput = ({ columnId, value, onChange, label, defaultCountry = DEFAULT
                 value={phoneNumber}
                 onChange={handlePhoneChange}
                 placeholder={`${label || "Phone"} number`}
-                disabled={disabled}  // ← disable input
-                style={disabled ? { backgroundColor: "#f5f5f5", cursor: "not-allowed", color: "#666" } : {}}  // ← grey
+                disabled={disabled} // ← disable input
+                style={disabled ? { backgroundColor: "#f5f5f5", cursor: "not-allowed", color: "#666" } : {}} // ← grey
             />
             {/* Dropdown — never rendered when disabled */}
             {!disabled && dropdownOpen && (
@@ -625,8 +656,6 @@ const FallbackForm = ({
 };
 
 const App = () => {
-    
-
     // ── Core context state ──────────────────────────────────────
     const [context, setContext] = useState();
     const [boardId, setBoardId] = useState(null);
@@ -635,7 +664,7 @@ const App = () => {
     const [formAction, setFormAction] = useState("create");
 
     const [boardSearch, setBoardSearch] = useState("");
-    
+
     // ── Item selection ──────────────────────────────────────────
     const [boardItems, setBoardItems] = useState([]);
     const [loadingItems, setLoadingItems] = useState(false);
@@ -661,7 +690,7 @@ const App = () => {
     const [submitStatus, setSubmitStatus] = useState(null);
 
     const [defaultCountryCode, setDefaultCountryCode] = useState(DEFAULT_COUNTRY); // ← ADD
-    
+
     // ── Main item lookup (board view update mode) ───────────────
     const [mainItemLookup, setMainItemLookup] = useState({
         items: [],
@@ -683,7 +712,6 @@ const App = () => {
     const { items, validatedSections, validationSummary, validatedChildBoards, validationRules, validationError, loading, error } = usePageLayoutInfo(boardId);
     const pageLayoutLoading = loading;
     const pageLayoutError = error;
-    
 
     // ── Derived: sections visible to this user ───────────────────
     // While userProfile is still loading (null) we don't filter yet — avoids
@@ -705,8 +733,6 @@ const App = () => {
     // field B which itself has a visibility rule) without infinite loops.
     const columnsMap = Object.fromEntries(boardColumns.map((c) => [c.id, c]));
     const fieldVisibilityMap = computeFieldVisibility(visibleSections, formData, boardColumns);
-
-    
 
     // =============================================================
     // EFFECT: Get monday context (boardId, itemId)
@@ -913,13 +939,12 @@ const App = () => {
     };
 
     const handleItemSelection = async (event) => {
-        
         const itemId = event.target.value;
         setSelectedItemId(itemId);
         if (!itemId) {
             setSelectedItem(null);
             setFormData({});
-            setDirtyFields(new Set()); 
+            setDirtyFields(new Set());
             return;
         }
         try {
@@ -1058,7 +1083,7 @@ const App = () => {
         }
     };
 
-    const loadRelationLookup = async (columnId, relatedBoardIds) => {
+    const loadRelationLookup = async (columnId, relatedBoardIds, lookupFilters = null) => {
         setRelationLookups((prev) => {
             const n = { ...prev };
             Object.keys(n).forEach((k) => {
@@ -1078,16 +1103,18 @@ const App = () => {
             const result = await retrieveMultipleBoardItems(relatedBoardIds);
 
             if (result.success) {
+                const filteredItems = applyLookupFilters(result.items, lookupFilters, formData);
                 setRelationLookups((prev) => ({
                     ...prev,
                     [columnId]: {
-                        items: result.items,
+                        items: filteredItems,
                         loading: false,
                         searchTerm: "",
                         isOpen: true,
                         boardNames: result.boardNames,
                         isMultiBoard: relatedBoardIds.length > 1,
                         partialError: result.error,
+                        lookupFilters,
                     },
                 }));
             } else {
@@ -1098,7 +1125,7 @@ const App = () => {
         }
     };
 
-    const handleRelationSearch = (columnId, relatedBoardIds, searchTerm) => {
+    const handleRelationSearch = (columnId, relatedBoardIds, searchTerm, lookupFilters = null) => {
         setRelationLookups((prev) => ({ ...prev, [columnId]: { ...prev[columnId], searchTerm } }));
         if (searchTimers.current[columnId]) clearTimeout(searchTimers.current[columnId]);
         if (!searchTerm || searchTerm.trim() === "") {
@@ -1107,7 +1134,13 @@ const App = () => {
                 if (result.success)
                     setRelationLookups((prev) => ({
                         ...prev,
-                        [columnId]: { ...prev[columnId], items: result.items, boardNames: result.boardNames, loading: false },
+                        [columnId]: {
+                            ...prev[columnId],
+                            //items: result.items,
+                            items: applyLookupFilters(result.items, lookupFilters, formData),
+                            boardNames: result.boardNames,
+                            loading: false,
+                        },
                     }));
             }, 300);
             return;
@@ -1120,7 +1153,8 @@ const App = () => {
                     ...prev,
                     [columnId]: {
                         ...prev[columnId],
-                        items: result.success ? result.items : [],
+                        //items: result.success ? result.items : [],
+                        items: applyLookupFilters(result.items, lookupFilters, formData),
                         boardNames: result.boardNames || {},
                         loading: false,
                         error: result.success ? null : result.error,
@@ -1218,8 +1252,7 @@ const App = () => {
         }
     };
 
-    const getSortedByPosition = (items) =>
-    [...items].sort((a, b) => (a.position ?? 999) - (b.position ?? 999));
+    const getSortedByPosition = (items) => [...items].sort((a, b) => (a.position ?? 999) - (b.position ?? 999));
 
     const getDropdownLabels = (columnId) => {
         const column = getColumnMetadata(columnId);
@@ -1245,15 +1278,7 @@ const App = () => {
         switch (field.type) {
             case "status": {
                 const labels = getStatusLabels(field.columnId);
-                return (
-                    <StatusInput
-                        field={field}
-                        value={value}
-                        labels={labels}
-                        onChange={isReadOnly ? () => {} : handleFieldChange}
-                        disabled={isReadOnly}
-                    />
-                );
+                return <StatusInput field={field} value={value} labels={labels} onChange={isReadOnly ? () => {} : handleFieldChange} disabled={isReadOnly} />;
             }
             case "dropdown": {
                 const labels = getDropdownLabels(field.columnId);
@@ -1313,7 +1338,7 @@ const App = () => {
                                 if (isReadOnly) return;
                                 if (!isOpen) {
                                     if (field.type === "people") loadPeopleLookup(field.columnId);
-                                    else loadRelationLookup(field.columnId, getRelatedBoardIds(field.columnId));
+                                    else loadRelationLookup(field.columnId, getRelatedBoardIds(field.columnId), field.lookup_filters ?? null);
                                 }
                             }}
                         >
@@ -1323,11 +1348,14 @@ const App = () => {
                                         <RecordPill
                                             key={item.id || idx}
                                             label={item.name || `ID: ${item.id || item}`}
-                                            onRemove={isReadOnly ? () => {} : () =>
-                                                handleFieldChange(
-                                                    field.columnId,
-                                                    selectedItems.filter((_, i) => i !== idx),
-                                                )
+                                            onRemove={
+                                                isReadOnly
+                                                    ? () => {}
+                                                    : () =>
+                                                          handleFieldChange(
+                                                              field.columnId,
+                                                              selectedItems.filter((_, i) => i !== idx),
+                                                          )
                                             }
                                         />
                                     ))
@@ -1348,7 +1376,12 @@ const App = () => {
                                         onChange={(e) =>
                                             field.type === "people"
                                                 ? handlePeopleSearch(field.columnId, e.target.value)
-                                                : handleRelationSearch(field.columnId, getRelatedBoardIds(field.columnId), e.target.value)
+                                                : handleRelationSearch(
+                                                      field.columnId,
+                                                      getRelatedBoardIds(field.columnId),
+                                                      e.target.value,
+                                                      field.lookup_filters ?? null,
+                                                  )
                                         }
                                         autoFocus
                                     />
@@ -1503,9 +1536,7 @@ const App = () => {
                 );
             }
             case "email": {
-                const emailVal = typeof value === "object" && value !== null
-                    ? value
-                    : { email: value || "", text: "" };
+                const emailVal = typeof value === "object" && value !== null ? value : { email: value || "", text: "" };
                 return (
                     <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                         <input
@@ -1646,13 +1677,7 @@ const App = () => {
                 // FileUpload has no meaningful read-only state via the API,
                 // but we can block the UI by not rendering it when read-only
                 return isReadOnly ? (
-                    <input
-                        type="text"
-                        value="(File upload disabled)"
-                        readOnly
-                        disabled
-                        style={readOnlyStyle}
-                    />
+                    <input type="text" value="(File upload disabled)" readOnly disabled style={readOnlyStyle} />
                 ) : (
                     <FileUpload
                         columnId={field.columnId}
@@ -1750,27 +1775,42 @@ const App = () => {
         }
     };
 
-
     // ─── Helper: get the correct "clear" payload for a column type ────────────────
     const BLANK_COLUMN_VALUE = (type) => {
         switch (type) {
-            case "status":         return { label: "" };        // clears status universally
-            case "dropdown":       return { ids: [] };
-            case "people":         return { personsAndTeams: [] };
-            case "board_relation": return { item_ids: [] };
-            case "date":           return { date: null };       // monday accepts null to clear
+            case "status":
+                return { label: "" }; // clears status universally
+            case "dropdown":
+                return { ids: [] };
+            case "people":
+                return { personsAndTeams: [] };
+            case "board_relation":
+                return { item_ids: [] };
+            case "date":
+                return { date: null }; // monday accepts null to clear
             case "timeline":
-            case "timerange":      return { from: null, to: null };
-            case "long_text":      return { text: "" };
-            case "text":           return "";
-            case "email": return { email: "", text: "" };
-            case "phone":          return "";
-            case "link":           return "";
-            case "numbers":        return null;                 // omit — monday rejects ""
-            case "checkbox":       return { checked: "false" };
-            case "rating":         return { rating: 0 };
-            case "tags":           return { tag_ids: [] };
-            default:               return null;                 // omit unknown types safely
+            case "timerange":
+                return { from: null, to: null };
+            case "long_text":
+                return { text: "" };
+            case "text":
+                return "";
+            case "email":
+                return { email: "", text: "" };
+            case "phone":
+                return "";
+            case "link":
+                return "";
+            case "numbers":
+                return null; // omit — monday rejects ""
+            case "checkbox":
+                return { checked: "false" };
+            case "rating":
+                return { rating: 0 };
+            case "tags":
+                return { tag_ids: [] };
+            default:
+                return null; // omit unknown types safely
         }
     };
 
@@ -1872,63 +1912,63 @@ const App = () => {
     };
 
     // ─── Unified type-aware empty check ──────────────────────────────────────────
-// Returns true if the value represents "user has cleared this field".
-// Each branch matches exactly how that type is stored in formData.
-const isFieldEmpty = (type, val) => {
-    if (val === null || val === undefined) return true;
-    switch (type) {
-        // Scalar types — empty string means cleared
-        case "email":
-            if (typeof val === "object" && val !== null) return !val.email || String(val.email).trim() === "";
-            return String(val).trim() === "";
-        case "text":
-            return String(val).trim() === "";
-        case "long_text":
-        case "phone_text":  // fallback for plain string phone
-        case "numbers":
-        case "date":
-            return String(val).trim() === "";
+    // Returns true if the value represents "user has cleared this field".
+    // Each branch matches exactly how that type is stored in formData.
+    const isFieldEmpty = (type, val) => {
+        if (val === null || val === undefined) return true;
+        switch (type) {
+            // Scalar types — empty string means cleared
+            case "email":
+                if (typeof val === "object" && val !== null) return !val.email || String(val.email).trim() === "";
+                return String(val).trim() === "";
+            case "text":
+                return String(val).trim() === "";
+            case "long_text":
+            case "phone_text": // fallback for plain string phone
+            case "numbers":
+            case "date":
+                return String(val).trim() === "";
 
-        // Array types — empty array means cleared
-        case "people":
-        case "board_relation":
-        case "dropdown":
-        case "tags":
-            return Array.isArray(val) && val.length === 0;
+            // Array types — empty array means cleared
+            case "people":
+            case "board_relation":
+            case "dropdown":
+            case "tags":
+                return Array.isArray(val) && val.length === 0;
 
-        // Status — empty string index means "-- Select --" was chosen
-        case "status":
-            return val === "" || val === null || val === undefined;
+            // Status — empty string index means "-- Select --" was chosen
+            case "status":
+                return val === "" || val === null || val === undefined;
 
-        // Phone — object with empty/null phone number
-        case "phone":
-            return !val.phone || String(val.phone).trim() === "";
+            // Phone — object with empty/null phone number
+            case "phone":
+                return !val.phone || String(val.phone).trim() === "";
 
-        // Link — object with empty URL
-        case "link":
-            return !val.url || String(val.url).trim() === "";
+            // Link — object with empty URL
+            case "link":
+                return !val.url || String(val.url).trim() === "";
 
-        // Timeline / timerange — object with both dates cleared
-        case "timeline":
-        case "timerange":
-            const from = val?.from || "";
-            const to = val?.to || "";
-            return from.trim() === "" && to.trim() === "";
+            // Timeline / timerange — object with both dates cleared
+            case "timeline":
+            case "timerange":
+                const from = val?.from || "";
+                const to = val?.to || "";
+                return from.trim() === "" && to.trim() === "";
 
-        // Numbers — also catch NaN from number input
-        // (redundant with scalar above but kept explicit for clarity)
-        //case "numbers":
+            // Numbers — also catch NaN from number input
+            // (redundant with scalar above but kept explicit for clarity)
+            //case "numbers":
             //return String(val).trim() === "" || isNaN(Number(val));
 
-        default:
-            return val === "";
+            default:
+                return val === "";
         }
-   };
+    };
 
     const createItem = async (recordValues) => {
         const fieldReadOnlyMap = {};
-        visibleSections.forEach(section => {
-            (section.fields || []).forEach(field => {
+        visibleSections.forEach((section) => {
+            (section.fields || []).forEach((field) => {
                 fieldReadOnlyMap[field.columnId] = field.readOnly === true || field.readOnly === "true";
             });
         });
@@ -1947,14 +1987,14 @@ const isFieldEmpty = (type, val) => {
                 const columnMeta = getColumnMetadata(columnId);
                 if (!columnMeta || columnMeta.type === "file") return;
                 if (READ_ONLY_COLUMN_TYPES.has(columnMeta.type)) return;
-                
+
                 const isEmpty =
                     value === "" || value === null || value === undefined || (typeof value === "object" && !Array.isArray(value) && value.phone === "");
                 if (isEmpty) return;
                 const formatted = formatColumnValue(columnId, value, columnMeta);
                 if (formatted !== null) columnValues[columnId] = formatted;
             });
-            
+
             const mutation = `mutation($boardId: ID!, $itemName: String!, $columnValues: JSON!) { create_item(board_id: $boardId item_name: $itemName column_values: $columnValues) { id name } }`;
             const response = await monday.api(mutation, { variables: { boardId, itemName, columnValues: JSON.stringify(columnValues) } });
             if (response.data && response.data.create_item) {
@@ -1975,7 +2015,7 @@ const isFieldEmpty = (type, val) => {
                 throw new Error("Failed to create item. No data returned.");
             }
         } catch (error) {
-            let displayMessage = "Error in creating item:: "; 
+            let displayMessage = "Error in creating item:: ";
             if (error.data && error.data.errors && error.data.errors.length > 0) {
                 let allErrorMessages = "";
                 error.data.errors.forEach((errTemp) => {
@@ -1986,20 +2026,20 @@ const isFieldEmpty = (type, val) => {
                 displayMessage += error.message || "An unknown error occurred";
             }
 
-            monday.execute("notice", { 
-                message: displayMessage, 
-                type: "error", 
-                timeout: 8000 
+            monday.execute("notice", {
+                message: displayMessage,
+                type: "error",
+                timeout: 8000,
             });
-            
+
             return { success: false, error: displayMessage };
         }
     };
 
     const updateItem = async (itemId, recordValues) => {
         const fieldReadOnlyMap = {};
-        visibleSections.forEach(section => {
-            (section.fields || []).forEach(field => {
+        visibleSections.forEach((section) => {
+            (section.fields || []).forEach((field) => {
                 fieldReadOnlyMap[field.columnId] = field.readOnly === true || field.readOnly === "true";
             });
         });
@@ -2015,23 +2055,20 @@ const isFieldEmpty = (type, val) => {
                 if (!dirtyFields.has(columnId)) return; // ← ONLY submit touched fields
 
                 //Continue with other fields
-                const value = recordValues[columnId] ;
+                const value = recordValues[columnId];
                 const columnMeta = getColumnMetadata(columnId);
                 if (!columnMeta || columnMeta.type === "file") return;
                 if (READ_ONLY_COLUMN_TYPES.has(columnMeta.type)) return;
-                
+
                 if (isFieldEmpty(columnMeta.type, value)) {
                     // Field was cleared — send the type-specific blank payload, or omit if null
                     const blankPayload = BLANK_COLUMN_VALUE(columnMeta.type);
                     columnValues[columnId] = blankPayload;
-                    
                 } else {
                     // Field has a value — format it for the API
                     const formatted = formatColumnValue(columnId, value, columnMeta);
                     if (formatted !== null) columnValues[columnId] = formatted;
                 }
-                
-                
             });
 
             // ── 1. Update item name separately if present ──────────
@@ -2044,7 +2081,7 @@ const isFieldEmpty = (type, val) => {
                 }`;
                 await monday.api(nameMutation, { variables: { boardId, itemId, newName } });
             }
-            
+
             // ── 2. Update column values (only if there are any) ────
             if (Object.keys(columnValues).length > 0) {
                 const mutation = `mutation($boardId: ID!, $itemId: ID!, $columnValues: JSON!) {
@@ -2067,7 +2104,7 @@ const isFieldEmpty = (type, val) => {
             await handleItemSelection({ target: { value: itemId } });
             return { success: true };
         } catch (error) {
-            let displayMessage = "Error in updating item:: "; 
+            let displayMessage = "Error in updating item:: ";
             if (error.data && error.data.errors && error.data.errors.length > 0) {
                 let allErrorMessages = "";
                 error.data.errors.forEach((errTemp) => {
@@ -2078,10 +2115,10 @@ const isFieldEmpty = (type, val) => {
                 displayMessage += error.message || "An unknown error occurred.";
             }
 
-            monday.execute("notice", { 
-                message: displayMessage, 
-                type: "error", 
-                timeout: 8000 
+            monday.execute("notice", {
+                message: displayMessage,
+                type: "error",
+                timeout: 8000,
             });
             return { success: false, error: displayMessage };
         }
@@ -2158,13 +2195,16 @@ const isFieldEmpty = (type, val) => {
                 //if (!isRequired) return;
                 // TO THIS:
                 const isReadOnly = field.readOnly === true || field.readOnly === "true";
-                if (!isRequired || isReadOnly) return;  
+                if (!isRequired || isReadOnly) return;
                 const val = formData[field.columnId];
                 const isEmpty =
-                    val === "" || val === null || val === undefined ||
+                    val === "" ||
+                    val === null ||
+                    val === undefined ||
                     (Array.isArray(val) && val.length === 0) ||
                     (typeof val === "object" && !Array.isArray(val) && val?.phone === "");
-                if (isEmpty) fieldErrors.push({ columnId: field.columnId, label: field.label, message: `"${field.label}" is required.`, type: "REQUIRED_FIELD" });
+                if (isEmpty)
+                    fieldErrors.push({ columnId: field.columnId, label: field.label, message: `"${field.label}" is required.`, type: "REQUIRED_FIELD" });
             });
         });
 
@@ -2307,7 +2347,14 @@ const isFieldEmpty = (type, val) => {
                         </button>
 
                         {formAction === "create" && (
-                            <button type="button" onClick={() => {setFormData({}); setDirtyFields(new Set()); }} className="btn-secondary">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setFormData({});
+                                    setDirtyFields(new Set());
+                                }}
+                                className="btn-secondary"
+                            >
                                 Clear Form
                             </button>
                         )}
@@ -2353,30 +2400,24 @@ const isFieldEmpty = (type, val) => {
                     />
 
                     {/* Grouped board list */}
-                    <div style={{
-                        border: "1px solid #d0d4e4",
-                        borderRadius: "4px",
-                        maxHeight: "320px",
-                        overflowY: "auto",
-                        backgroundColor: "#fff",
-                    }}>
+                    <div
+                        style={{
+                            border: "1px solid #d0d4e4",
+                            borderRadius: "4px",
+                            maxHeight: "320px",
+                            overflowY: "auto",
+                            backgroundColor: "#fff",
+                        }}
+                    >
                         {(() => {
                             // Filter boards by search term
                             const q = boardSearch.trim().toLowerCase();
                             const filtered = q
-                                ? boards.filter(
-                                    (b) =>
-                                        b.name.toLowerCase().includes(q) ||
-                                        (b.workspace?.name || "").toLowerCase().includes(q)
-                                )
+                                ? boards.filter((b) => b.name.toLowerCase().includes(q) || (b.workspace?.name || "").toLowerCase().includes(q))
                                 : boards;
 
                             if (filtered.length === 0) {
-                                return (
-                                    <div style={{ padding: "12px 16px", color: "#adb5c3", fontSize: "13px", fontStyle: "italic" }}>
-                                        No boards found
-                                    </div>
-                                );
+                                return <div style={{ padding: "12px 16px", color: "#adb5c3", fontSize: "13px", fontStyle: "italic" }}>No boards found</div>;
                             }
 
                             // Group by workspace
@@ -2390,18 +2431,20 @@ const isFieldEmpty = (type, val) => {
                             return Object.entries(grouped).map(([wsName, wsBoards]) => (
                                 <div key={wsName}>
                                     {/* Workspace header */}
-                                    <div style={{
-                                        padding: "6px 12px",
-                                        fontSize: "11px",
-                                        fontWeight: 700,
-                                        textTransform: "uppercase",
-                                        letterSpacing: "0.5px",
-                                        color: "#676879",
-                                        backgroundColor: "#f6f7fb",
-                                        borderBottom: "1px solid #e5e7ef",
-                                        position: "sticky",
-                                        top: 0,
-                                    }}>
+                                    <div
+                                        style={{
+                                            padding: "6px 12px",
+                                            fontSize: "11px",
+                                            fontWeight: 700,
+                                            textTransform: "uppercase",
+                                            letterSpacing: "0.5px",
+                                            color: "#676879",
+                                            backgroundColor: "#f6f7fb",
+                                            borderBottom: "1px solid #e5e7ef",
+                                            position: "sticky",
+                                            top: 0,
+                                        }}
+                                    >
                                         {wsName}
                                     </div>
 
@@ -2422,8 +2465,8 @@ const isFieldEmpty = (type, val) => {
                                                 borderBottom: "1px solid #f0f2f5",
                                                 transition: "background 0.1s",
                                             }}
-                                            onMouseEnter={(e) => e.currentTarget.style.background = "#f0f4ff"}
-                                            onMouseLeave={(e) => e.currentTarget.style.background = "#fff"}
+                                            onMouseEnter={(e) => (e.currentTarget.style.background = "#f0f4ff")}
+                                            onMouseLeave={(e) => (e.currentTarget.style.background = "#fff")}
                                         >
                                             {b.name}
                                         </div>

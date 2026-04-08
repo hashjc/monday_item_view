@@ -431,6 +431,36 @@ body {
   overflow: visible;
 }
 
+/* ─── Related Lists Sorting ───────────────────────────────── */
+.rl-th-sortable {
+    cursor: pointer;
+    user-select: none;
+    transition: background-color 0.15s;
+}
+.rl-th-sortable:hover {
+    background-color: #e8eaf0;
+}
+.rl-th-content {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.rl-sort-icon {
+    font-size: 10px;
+    opacity: 0; 
+    color: #676879;
+    transition: opacity 0.2s, color 0.2s;
+}
+/* Show faded arrow on hover to indicate sortability */
+.rl-th-sortable:hover .rl-sort-icon {
+    opacity: 0.5;
+}
+/* Show solid blue arrow when actively sorting */
+.rl-th-sortable.active-sort .rl-sort-icon {
+    opacity: 1;
+    color: #0073ea;
+}
+
 /* Show the kebab button only on row hover */
 .rl-tr .rl-kebab-btn { opacity: 0; }
 .rl-tr:hover .rl-kebab-btn { opacity: 1; }
