@@ -1041,12 +1041,31 @@ const App = () => {
                     } else if (col.type === "text") {
                         itemData[col.id] = col.text || "";
                     } else if (col.type === "date") {
-                        //itemData[col.id] = col.text || "";
                         try {
                             const parsed = JSON.parse(col.value);
-                            const dateStr = parsed.date || "";
-                            const timeStr = parsed.time ? parsed.time.slice(0, 5) : ""; // "03:30:00" → "03:30"
-                            itemData[col.id] = { date: dateStr, time: timeStr };
+                            if (!parsed.date) {
+                                itemData[col.id] = { date: "", time: "" };
+                            } else {
+                                // Create a Date object from GMT values
+                                const gmtString = parsed.time ? `${parsed.date}T${parsed.time}Z` : `${parsed.date}T00:00:00Z`;
+                                const dateObj = new Date(gmtString);
+
+                                // If time wasn't originally set, don't force a timezone shift on just the date
+                                if (!parsed.time) {
+                                    itemData[col.id] = { date: parsed.date, time: "" };
+                                } else {
+                                    // Shift GMT to Local Browser Time
+                                    const localISODate =
+                                        dateObj.getFullYear() +
+                                        "-" +
+                                        String(dateObj.getMonth() + 1).padStart(2, "0") +
+                                        "-" +
+                                        String(dateObj.getDate()).padStart(2, "0");
+                                    const localTime = String(dateObj.getHours()).padStart(2, "0") + ":" + String(dateObj.getMinutes()).padStart(2, "0");
+
+                                    itemData[col.id] = { date: localISODate, time: localTime };
+                                }
+                            }
                         } catch (_) {
                             const datePart = (col.text || "").split(" ")[0] || "";
                             itemData[col.id] = { date: datePart, time: "" };
@@ -1273,7 +1292,6 @@ const App = () => {
             return [];
         }
     };
-
 
     // =============================================================
     // RENDER FIELD
@@ -1548,25 +1566,29 @@ const App = () => {
             case "email": {
                 const emailVal = typeof value === "object" && value !== null ? value : { email: value || "", text: "" };
                 return (
-                    <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                        <input
-                            type="email"
-                            value={emailVal.email || ""}
-                            onChange={(e) => handleFieldChange(field.columnId, { ...emailVal, email: e.target.value })}
-                            placeholder={`Enter ${field.label}`}
-                            readOnly={isReadOnly}
-                            disabled={isReadOnly}
-                            style={isReadOnly ? readOnlyStyle : inputStyle}
-                        />
-                        <input
-                            type="text"
-                            value={emailVal.text || ""}
-                            onChange={(e) => handleFieldChange(field.columnId, { ...emailVal, text: e.target.value })}
-                            placeholder="Display label (optional)"
-                            readOnly={isReadOnly}
-                            disabled={isReadOnly}
-                            style={isReadOnly ? { ...readOnlyStyle, fontSize: "12px" } : { ...inputStyle, fontSize: "12px" }}
-                        />
+                    <div style={{ display: "flex", gap: "8px", alignItems: "flex-start" }}>
+                        <div style={{ flex: 1 }}>
+                            <input
+                                type="email"
+                                value={emailVal.email || ""}
+                                onChange={(e) => handleFieldChange(field.columnId, { ...emailVal, email: e.target.value })}
+                                placeholder={`Enter ${field.label}`}
+                                readOnly={isReadOnly}
+                                disabled={isReadOnly}
+                                style={isReadOnly ? readOnlyStyle : inputStyle}
+                            />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                            <input
+                                type="text"
+                                value={emailVal.text || ""}
+                                onChange={(e) => handleFieldChange(field.columnId, { ...emailVal, text: e.target.value })}
+                                placeholder="Display label (optional)"
+                                readOnly={isReadOnly}
+                                disabled={isReadOnly}
+                                style={isReadOnly ? { ...readOnlyStyle, fontSize: "12px" } : { ...inputStyle, fontSize: "12px" }}
+                            />
+                        </div>
                     </div>
                 );
             }
@@ -1621,23 +1643,28 @@ const App = () => {
             case "date": {
                 const dateVal = value && typeof value === "object" ? value : { date: value || "", time: "" };
                 return (
-                    <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                        <input
-                            type="date"
-                            value={dateVal.date || ""}
-                            onChange={(e) => handleFieldChange(field.columnId, { ...dateVal, date: e.target.value })}
-                            readOnly={isReadOnly}
-                            disabled={isReadOnly}
-                            style={isReadOnly ? readOnlyStyle : inputStyle}
-                        />
-                        <input
-                            type="time"
-                            value={dateVal.time || ""}
-                            onChange={(e) => handleFieldChange(field.columnId, { ...dateVal, time: e.target.value })}
-                            readOnly={isReadOnly}
-                            disabled={isReadOnly}
-                            style={isReadOnly ? { ...readOnlyStyle, fontSize: "12px" } : { ...inputStyle, fontSize: "12px" }}
-                        />
+                    /* Flex container to show items side by side */
+                    <div style={{ display: "flex", gap: "8px", alignItems: "flex-start" }}>
+                        <div style={{ flex: 1 }}>
+                            <input
+                                type="date"
+                                value={dateVal.date || ""}
+                                onChange={(e) => handleFieldChange(field.columnId, { ...dateVal, date: e.target.value })}
+                                readOnly={isReadOnly}
+                                disabled={isReadOnly}
+                                style={isReadOnly ? readOnlyStyle : inputStyle}
+                            />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                            <input
+                                type="time"
+                                value={dateVal.time || ""}
+                                onChange={(e) => handleFieldChange(field.columnId, { ...dateVal, time: e.target.value })}
+                                readOnly={isReadOnly}
+                                disabled={isReadOnly}
+                                style={isReadOnly ? { ...readOnlyStyle, fontSize: "12px" } : { ...inputStyle, fontSize: "12px" }}
+                            />
+                        </div>
                     </div>
                 );
             }
@@ -1673,25 +1700,29 @@ const App = () => {
             case "link": {
                 const linkVal = typeof value === "object" && value !== null ? value : { url: value || "", text: value || "" };
                 return (
-                    <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                        <input
-                            type="url"
-                            value={linkVal.url}
-                            onChange={(e) => handleFieldChange(field.columnId, { ...linkVal, url: e.target.value })}
-                            placeholder="https://example.com"
-                            readOnly={isReadOnly}
-                            disabled={isReadOnly}
-                            style={isReadOnly ? readOnlyStyle : inputStyle}
-                        />
-                        <input
-                            type="text"
-                            value={linkVal.text}
-                            onChange={(e) => handleFieldChange(field.columnId, { ...linkVal, text: e.target.value })}
-                            placeholder="Link label (optional)"
-                            readOnly={isReadOnly}
-                            disabled={isReadOnly}
-                            style={isReadOnly ? { ...readOnlyStyle, fontSize: "12px" } : { ...inputStyle, fontSize: "12px" }}
-                        />
+                    <div style={{ display: "flex", gap: "8px", alignItems: "flex-start" }}>
+                        <div style={{ flex: 1 }}>
+                            <input
+                                type="url"
+                                value={linkVal.url}
+                                onChange={(e) => handleFieldChange(field.columnId, { ...linkVal, url: e.target.value })}
+                                placeholder="https://example.com"
+                                readOnly={isReadOnly}
+                                disabled={isReadOnly}
+                                style={isReadOnly ? readOnlyStyle : inputStyle}
+                            />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                            <input
+                                type="text"
+                                value={linkVal.text}
+                                onChange={(e) => handleFieldChange(field.columnId, { ...linkVal, text: e.target.value })}
+                                placeholder="Link label (optional)"
+                                readOnly={isReadOnly}
+                                disabled={isReadOnly}
+                                style={isReadOnly ? { ...readOnlyStyle, fontSize: "12px" } : { ...inputStyle, fontSize: "12px" }}
+                            />
+                        </div>
                     </div>
                 );
             }
@@ -1863,9 +1894,24 @@ const App = () => {
                 const dv = value && typeof value === "object" ? value : { date: String(value).trim(), time: "" };
                 const dateStr = (dv.date || "").trim();
                 if (!dateStr) return null;
-                const timeStr = (dv.time || "").trim();
-                // monday expects time as "HH:MM:SS"; append ":00" to the "HH:MM" from the input
-                return timeStr ? { date: dateStr, time: timeStr + ":00" } : { date: dateStr };
+
+                if (!dv.time) {
+                    return { date: dateStr };
+                }
+
+                // Create a date object based on local time input
+                const localDate = new Date(`${dateStr}T${dv.time}:00`);
+
+                // Convert to GMT components
+                const gmtDate =
+                    localDate.getUTCFullYear() +
+                    "-" +
+                    String(localDate.getUTCMonth() + 1).padStart(2, "0") +
+                    "-" +
+                    String(localDate.getUTCDate()).padStart(2, "0");
+                const gmtTime = String(localDate.getUTCHours()).padStart(2, "0") + ":" + String(localDate.getUTCMinutes()).padStart(2, "0") + ":00";
+
+                return { date: gmtDate, time: gmtTime };
             }
             case "numbers":
                 const trimmed = String(value).trim();
