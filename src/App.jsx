@@ -17,7 +17,6 @@ import { getAccountCountryCode } from "./monday_utils/accountMetadata";
 import { runAllValidationRules } from "./itemValidations/formValidationConfig";
 import { DEFAULT_COUNTRY } from "./metadataConfig";
 import RelatedLists from "./components/RelatedLists";
-import { filter } from "selenium-webdriver/lib/promise";
 
 const monday = mondaySdk();
 
@@ -77,6 +76,19 @@ const PHONE_COUNTRIES = [
     { code: "UA", name: "Ukraine", dial: "+380", flag: "🇺🇦" },
 ];
 
+const TIME_OPTIONS = (() => {
+    const times = [];
+    for (let i = 0; i < 24; i++) {
+        for (let j = 0; j < 60; j += 30) {
+            const h = i % 12 || 12;
+            const ampm = i < 12 ? "AM" : "PM";
+            const label = `${String(h).padStart(2, "0")}:${String(j).padStart(2, "0")} ${ampm}`;
+            times.push(label);
+        }
+    }
+    return times;
+})();
+
 // Add this constant at the top of the file with your other constants
 const READ_ONLY_COLUMN_TYPES = new Set([
     "formula",
@@ -90,6 +102,81 @@ const READ_ONLY_COLUMN_TYPES = new Set([
     "auto_number",
     "doc",
 ]);
+const TimeInput = ({ value, onChange, disabled, placeholder }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const containerRef = useRef(null);
+
+    // Close when clicking outside
+    useEffect(() => {
+        const handler = (e) => {
+            if (containerRef.current && !containerRef.current.contains(e.target)) setIsOpen(false);
+        };
+        document.addEventListener("mousedown", handler);
+        return () => document.removeEventListener("mousedown", handler);
+    }, []);
+
+    const handleSelect = (time) => {
+        onChange(time);
+        setIsOpen(false);
+    };
+
+    return (
+        <div ref={containerRef} style={{ position: "relative", width: "100%" }}>
+            <input
+                type="text"
+                value={value || ""}
+                onChange={(e) => onChange(e.target.value)}
+                onFocus={() => !disabled && setIsOpen(true)}
+                placeholder={placeholder}
+                disabled={disabled}
+                style={{
+                    padding: "8px 12px",
+                    width: "100%",
+                    borderRadius: "4px",
+                    border: "1px solid #ccc",
+                    fontSize: "12px",
+                    backgroundColor: disabled ? "#f5f5f5" : "#fff",
+                    cursor: disabled ? "not-allowed" : "text",
+                }}
+            />
+            {!disabled && isOpen && (
+                <div
+                    style={{
+                        position: "absolute",
+                        top: "100%",
+                        left: 0,
+                        right: 0,
+                        maxHeight: "200px",
+                        overflowY: "auto",
+                        backgroundColor: "#fff",
+                        border: "1px solid #d0d4e4",
+                        borderRadius: "4px",
+                        boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
+                        zIndex: 1000,
+                        marginTop: "4px",
+                    }}
+                >
+                    {TIME_OPTIONS.map((t) => (
+                        <div
+                            key={t}
+                            onClick={() => handleSelect(t)}
+                            style={{
+                                padding: "8px 12px",
+                                cursor: "pointer",
+                                fontSize: "13px",
+                                borderBottom: "1px solid #f0f0f0",
+                            }}
+                            onMouseEnter={(e) => (e.target.style.backgroundColor = "#f0f4ff")}
+                            onMouseLeave={(e) => (e.target.style.backgroundColor = "#fff")}
+                        >
+                            {t}
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+};
 
 const StatusInput = ({ field, value, labels, onChange, disabled }) => {
     const [statusOpen, setStatusOpen] = React.useState(false);
@@ -1063,7 +1150,15 @@ const App = () => {
                                         String(dateObj.getDate()).padStart(2, "0");
                                     const localTime = String(dateObj.getHours()).padStart(2, "0") + ":" + String(dateObj.getMinutes()).padStart(2, "0");
 
-                                    itemData[col.id] = { date: localISODate, time: localTime };
+                                    // Convert to 12-hour format: "hh:mm AM/PM"
+                                    let hours = dateObj.getHours();
+                                    const ampm = hours >= 12 ? "PM" : "AM";
+                                    hours = hours % 12;
+                                    hours = hours ? hours : 12; // the hour '0' should be '12'
+                                    const minutes = String(dateObj.getMinutes()).padStart(2, "0");
+                                    const localTime12h = `${String(hours).padStart(2, "0")}:${minutes} ${ampm}`;
+
+                                    itemData[col.id] = { date: localISODate, time: localTime12h };
                                 }
                             }
                         } catch (_) {
@@ -1656,13 +1751,11 @@ const App = () => {
                             />
                         </div>
                         <div style={{ flex: 1 }}>
-                            <input
-                                type="time"
-                                value={dateVal.time || ""}
-                                onChange={(e) => handleFieldChange(field.columnId, { ...dateVal, time: e.target.value })}
-                                readOnly={isReadOnly}
+                            <TimeInput
+                                value={dateVal.time}
+                                placeholder="hh:mm AM/PM"
                                 disabled={isReadOnly}
-                                style={isReadOnly ? { ...readOnlyStyle, fontSize: "12px" } : { ...inputStyle, fontSize: "12px" }}
+                                onChange={(newTime) => handleFieldChange(field.columnId, { ...dateVal, time: newTime })}
                             />
                         </div>
                     </div>
@@ -1894,15 +1987,34 @@ const App = () => {
                 const dv = value && typeof value === "object" ? value : { date: String(value).trim(), time: "" };
                 const dateStr = (dv.date || "").trim();
                 if (!dateStr) return null;
+                if (!dv.time) return { date: dateStr };
 
-                if (!dv.time) {
-                    return { date: dateStr };
+                // Robust parsing of "06:31 AM" or "19:54"
+                const timeMatch = dv.time.match(/(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
+                let hours24 = 0,
+                    mins = 0;
+
+                if (timeMatch) {
+                    let [, hr, min, p] = timeMatch;
+                    hr = parseInt(hr, 10);
+                    min = parseInt(min, 10);
+
+                    // Critical: Force valid ranges (0-59 minutes, 1-12 hours)
+                    mins = Math.min(59, Math.max(0, min));
+                    hr = Math.min(12, Math.max(1, hr));
+
+                    if (p) {
+                        const ampm = p.toUpperCase();
+                        if (ampm === "PM" && hr < 12) hr += 12;
+                        if (ampm === "AM" && hr === 12) hr = 0;
+                    }
+                    hours24 = hr;
                 }
 
-                // Create a date object based on local time input
-                const localDate = new Date(`${dateStr}T${dv.time}:00`);
+                const localDate = new Date(`${dateStr}T${String(hours24).padStart(2, "0")}:${String(mins).padStart(2, "0")}:00`);
 
-                // Convert to GMT components
+                if (isNaN(localDate.getTime())) return { date: dateStr };
+
                 const gmtDate =
                     localDate.getUTCFullYear() +
                     "-" +
@@ -2239,22 +2351,39 @@ const App = () => {
             section.fields.forEach((field) => {
                 if (field.isValid !== true || field.duplicate !== false) return;
                 if (fieldVisibilityMap[field.columnId] === false) return;
-                if (field.type !== "timeline" && field.type !== "timerange") return;
+                //Handle Dates
+                // Handle Date Specific Validation
+                if (field.type === "date") {
+                    const val = formData[field.columnId];
+                    const hasTime = val?.time && val.time.trim() !== "";
+                    const hasDate = val?.date && val.date.trim() !== "";
 
-                const val = formData[field.columnId];
-                const from = val?.from || "";
-                const to = val?.to || "";
-                const hasFrom = from.trim() !== "";
-                const hasTo = to.trim() !== "";
+                    if (hasTime && !hasDate) {
+                        fieldErrors.push({
+                            columnId: field.columnId,
+                            label: field.label,
+                            message: `"${field.label}": Please enter a date if a time is specified.`,
+                            type: "REQUIRED_FIELD",
+                        });
+                    }
+                }
+                //if (field.type !== "timeline" && field.type !== "timerange") return;
+                if (field.type === "timeline" && field.type === "timerange") {
+                    const val = formData[field.columnId];
+                    const from = val?.from || "";
+                    const to = val?.to || "";
+                    const hasFrom = from.trim() !== "";
+                    const hasTo = to.trim() !== "";
 
-                if (hasFrom !== hasTo) {
-                    // One is set, the other is not — block submission
-                    fieldErrors.push({
-                        columnId: field.columnId,
-                        label: field.label,
-                        message: `"${field.label}": both start and end dates must be set, or both must be cleared.`,
-                        type: "REQUIRED_FIELD",
-                    });
+                    if (hasFrom !== hasTo) {
+                        // One is set, the other is not — block submission
+                        fieldErrors.push({
+                            columnId: field.columnId,
+                            label: field.label,
+                            message: `"${field.label}": both start and end dates must be set, or both must be cleared.`,
+                            type: "REQUIRED_FIELD",
+                        });
+                    }
                 }
             });
         });
