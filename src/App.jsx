@@ -1618,17 +1618,29 @@ const App = () => {
                         style={isReadOnly ? readOnlyStyle : inputStyle}
                     />
                 );
-            case "date":
+            case "date": {
+                const dateVal = value && typeof value === "object" ? value : { date: value || "", time: "" };
                 return (
-                    <input
-                        type="date"
-                        value={value}
-                        onChange={(e) => handleFieldChange(field.columnId, e.target.value)}
-                        readOnly={isReadOnly}
-                        disabled={isReadOnly}
-                        style={isReadOnly ? readOnlyStyle : inputStyle}
-                    />
+                    <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                        <input
+                            type="date"
+                            value={dateVal.date || ""}
+                            onChange={(e) => handleFieldChange(field.columnId, { ...dateVal, date: e.target.value })}
+                            readOnly={isReadOnly}
+                            disabled={isReadOnly}
+                            style={isReadOnly ? readOnlyStyle : inputStyle}
+                        />
+                        <input
+                            type="time"
+                            value={dateVal.time || ""}
+                            onChange={(e) => handleFieldChange(field.columnId, { ...dateVal, time: e.target.value })}
+                            readOnly={isReadOnly}
+                            disabled={isReadOnly}
+                            style={isReadOnly ? { ...readOnlyStyle, fontSize: "12px" } : { ...inputStyle, fontSize: "12px" }}
+                        />
+                    </div>
                 );
+            }
             case "checkbox":
                 return (
                     <label style={{ display: "flex", alignItems: "center", cursor: isReadOnly ? "not-allowed" : "pointer", opacity: isReadOnly ? 0.6 : 1 }}>
@@ -1847,8 +1859,14 @@ const App = () => {
                 const validIds = relations.map((r) => (typeof r === "object" ? r.id : r)).filter(Boolean);
                 return validIds.length > 0 ? { item_ids: validIds.map((id) => parseInt(id)) } : null;
             }
-            case "date":
-                return String(value).trim() !== "" ? { date: value } : null;
+            case "date": {
+                const dv = value && typeof value === "object" ? value : { date: String(value).trim(), time: "" };
+                const dateStr = (dv.date || "").trim();
+                if (!dateStr) return null;
+                const timeStr = (dv.time || "").trim();
+                // monday expects time as "HH:MM:SS"; append ":00" to the "HH:MM" from the input
+                return timeStr ? { date: dateStr, time: timeStr + ":00" } : { date: dateStr };
+            }
             case "numbers":
                 const trimmed = String(value).trim();
                 if (trimmed === "" || isNaN(Number(trimmed))) return null;
