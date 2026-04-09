@@ -1041,7 +1041,16 @@ const App = () => {
                     } else if (col.type === "text") {
                         itemData[col.id] = col.text || "";
                     } else if (col.type === "date") {
-                        itemData[col.id] = col.text || "";
+                        //itemData[col.id] = col.text || "";
+                        try {
+                            const parsed = JSON.parse(col.value);
+                            const dateStr = parsed.date || "";
+                            const timeStr = parsed.time ? parsed.time.slice(0, 5) : ""; // "03:30:00" → "03:30"
+                            itemData[col.id] = { date: dateStr, time: timeStr };
+                        } catch (_) {
+                            const datePart = (col.text || "").split(" ")[0] || "";
+                            itemData[col.id] = { date: datePart, time: "" };
+                        }
                     } else if (col.type === "email") {
                         try {
                             const parsed = JSON.parse(col.value);
@@ -1264,6 +1273,7 @@ const App = () => {
             return [];
         }
     };
+
 
     // =============================================================
     // RENDER FIELD

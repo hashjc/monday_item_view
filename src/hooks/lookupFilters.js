@@ -1,51 +1,44 @@
 // src/hooks/lookupFilters.js
 //
-// Reusable client-side filter for board_relation lookup items.
+// Runtime client-side filter for board_relation lookup items.
 //
-// Filter shape (from field JSON config):
-// {
-//   "conditions": [
-//     {
-//       "id":       "rule1",
-//       "boardId":  "5024227503",   // optional — scope to a specific linked board
-//       "source":   "field",        // "field" = filter by item's own column value
-//                                   // "form"  = compare against current form field value
-//       "fieldId":  "color_mm0e1nq2", // column id on the linked board item
-//       "operator": "==",
-//       "value":    "Buyer"         // literal compare value (source:"field")
-//                                   // OR columnId in formData (source:"form")
-//     }
-//   ],
-//   "criteria": "ALL"  // "ALL" = AND, "ANY" = OR
-// }
+// lookup_filters is an ARRAY of per-board entries:
+// [
+//   {
+//     "boardId": "5024227503",
+//     "conditions": [
+//       { "id": "rule1", "source": "field", "fieldId": "color_mm0e1nq2", "operator": "==", "value": "Buyer" }
+//     ],
+//     "criteria": "ALL"
+//   }
+// ]
 //
-// Supported operators (shared with visibility / validation rule engine):
-//   ==  !=  contains  not_contains  >  >=  <  <=
+// Filtering rules:
+//   - lookup_filters null / empty → return all items unchanged.
+//   - A board NOT present in lookup_filters → its items pass through unchanged.
+//   - Error A: filter boardId no longer connected → no items from it appear, no-op.
+//   - Error B: any condition references a fieldId missing from the board's columns
+//              → skip ALL filters for that board, return its items untouched.
 //
-// Items from a board NOT referenced in any condition pass through unfiltered,
-// so multi-board relations work correctly even when only one board has rules.
+// Supported operators: ==  !=  contains  not_contains  >  >=  <  <=
 
-// ─── Operator registry ────────────────────────────────────────────────────────
+// ─── Operator registry ─────────────────────────────────────────────────────────
 const normalize = (v) => String(v ?? "").trim().toLowerCase();
-const toNum    = (v) => parseFloat(String(v ?? "").replace(/,/g, "")) || 0;
+const toNum     = (v) => parseFloat(String(v ?? "").replace(/,/g, "")) || 0;
 
 const OPERATORS = {
     "==":           (a, b) => normalize(a) === normalize(b),
     "!=":           (a, b) => normalize(a) !== normalize(b),
     "contains":     (a, b) => normalize(a).includes(normalize(b)),
     "not_contains": (a, b) => !normalize(a).includes(normalize(b)),
-    ">":            (a, b) => toNum(a)    >  toNum(b),
-    ">=":           (a, b) => toNum(a)    >= toNum(b),
-    "<":            (a, b) => toNum(a)    <  toNum(b),
-    "<=":           (a, b) => toNum(a)    <= toNum(b),
+    ">":            (a, b) => toNum(a) >  toNum(b),
+    ">=":           (a, b) => toNum(a) >= toNum(b),
+    "<":            (a, b) => toNum(a) <  toNum(b),
+    "<=":           (a, b) => toNum(a) <= toNum(b),
 };
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Helpers ───────────────────────────────────────────────────────────────────
 
-/**
- * Extract the display text for a column from a board item's column_values array.
- * Falls back to display_value (mirror / formula columns).
- */
 const getColumnText = (item, fieldId) => {
     if (!Array.isArray(item.column_values)) return "";
     const col = item.column_values.find((cv) => cv.id === fieldId);
@@ -53,88 +46,85 @@ const getColumnText = (item, fieldId) => {
     return col.text || col.display_value || "";
 };
 
-/**
- * Evaluate a single condition against one item.
- *
- * source:"field" — compares item's fieldId column against the literal `value`.
- * source:"form"  — compares item's fieldId column against formData[value]
- *                  (value is treated as a columnId key in the current form).
- *
- * Unknown operators are treated as passing (fail-open) so new operators
- * don't silently block all records.
- */
+const fieldExists = (item, fieldId) => {
+    if (!fieldId || !Array.isArray(item.column_values)) return false;
+    return item.column_values.some((cv) => cv.id === fieldId);
+};
+
 const evaluateCondition = (item, condition, formData = {}) => {
     const { fieldId, operator, value, source } = condition;
-
     const fn = OPERATORS[operator];
     if (!fn) {
         console.warn(`[lookupFilters] Unknown operator "${operator}" — condition passes.`);
         return true;
     }
-
     const itemVal = getColumnText(item, fieldId);
-
-    // Resolve the comparison value
     let compareVal;
     if (source === "form") {
-        // Dynamic: pull the current form field's text representation
         const raw = formData[value];
         if (raw === null || raw === undefined) {
             compareVal = "";
         } else if (typeof raw === "object" && !Array.isArray(raw)) {
-            // phone / link / email objects — use their primary string property
             compareVal = raw.phone || raw.email || raw.url || raw.text || "";
         } else if (Array.isArray(raw)) {
-            // people / board_relation / dropdown — join names
             compareVal = raw.map((r) => (typeof r === "object" ? r.name || "" : String(r))).join(", ");
         } else {
             compareVal = String(raw);
         }
     } else {
-        // Static literal (source:"field" or any other source value)
         compareVal = value ?? "";
     }
-
     return fn(itemVal, compareVal);
 };
 
-// ─── Public API ───────────────────────────────────────────────────────────────
+/**
+ * Evaluate all conditions in a board filter entry against one item.
+ * Error case B: if ANY condition references a missing fieldId, the item passes (filter skipped).
+ */
+const evaluateBoardFilter = (item, boardFilter, formData) => {
+    const { conditions = [], criteria = "ALL" } = boardFilter;
+    if (conditions.length === 0) return true;
+
+    // Error case B — missing field → skip filter for this board
+    const hasMissingField = conditions.some((c) => c.fieldId && !fieldExists(item, c.fieldId));
+    if (hasMissingField) {
+        console.warn(
+            `[lookupFilters] Board ${boardFilter.boardId}: filter field(s) missing on item — skipping filter for this board.`
+        );
+        return true;
+    }
+
+    const results = conditions.map((c) => evaluateCondition(item, c, formData));
+    const matchAll = (criteria || "ALL").toUpperCase() !== "ANY";
+    return matchAll ? results.every(Boolean) : results.some(Boolean);
+};
+
+// ─── Public API ────────────────────────────────────────────────────────────────
 
 /**
- * Filter an array of board items using a lookup_filters config object.
+ * Filter board items using the per-board lookup_filters array.
  *
- * Items whose source board is NOT referenced by any condition are left
- * untouched — this ensures that in multi-board relations, only the
- * configured boards are filtered while others pass through freely.
- *
- * @param {Array}       items         - Items from retrieveMultipleBoardItems (each has .boardId)
- * @param {Object|null} lookupFilters - { conditions, criteria } from field JSON config
- * @param {Object}      [formData]    - Current form state, needed for source:"form" conditions
+ * @param {Array}      items         Items from retrieveMultipleBoardItems (each has .boardId)
+ * @param {Array|null} lookupFilters Array of { boardId, conditions, criteria }
+ * @param {Object}     [formData]    Current form state (for source:"form" conditions)
  * @returns {Array} Filtered items
  */
 export function applyLookupFilters(items, lookupFilters, formData = {}) {
-    if (
-        !lookupFilters ||
-        !Array.isArray(lookupFilters.conditions) ||
-        lookupFilters.conditions.length === 0
-    ) {
-        return items; // nothing to filter
+    if (!lookupFilters || !Array.isArray(lookupFilters) || lookupFilters.length === 0) {
+        return items;
     }
 
-    const { conditions, criteria } = lookupFilters;
-    const matchAll = (criteria || "ALL").toUpperCase() !== "ANY"; // default AND
+    // Build boardId → filter entry map
+    const filterMap = {};
+    lookupFilters.forEach((entry) => {
+        if (entry && entry.boardId) filterMap[String(entry.boardId)] = entry;
+    });
 
     return items.filter((item) => {
-        // Only apply conditions that target this item's board (or have no boardId)
-        const applicable = conditions.filter(
-            (c) => !c.boardId || String(c.boardId) === String(item.boardId)
-        );
-
-        // No conditions target this board → let the item through
-        if (applicable.length === 0) return true;
-
-        return matchAll
-            ? applicable.every((c) => evaluateCondition(item, c, formData))
-            : applicable.some( (c) => evaluateCondition(item, c, formData));
+        const itemBoardId = String(item.boardId || "");
+        const filterEntry = filterMap[itemBoardId];
+        // No filter for this board (or board no longer connected) → pass through
+        if (!filterEntry) return true;
+        return evaluateBoardFilter(item, filterEntry, formData);
     });
 }
