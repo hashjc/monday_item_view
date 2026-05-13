@@ -1661,30 +1661,15 @@ const App = () => {
             case "email": {
                 const emailVal = typeof value === "object" && value !== null ? value : { email: value || "", text: "" };
                 return (
-                    <div style={{ display: "flex", gap: "8px", alignItems: "flex-start" }}>
-                        <div style={{ flex: 1 }}>
-                            <input
-                                type="email"
-                                value={emailVal.email || ""}
-                                onChange={(e) => handleFieldChange(field.columnId, { ...emailVal, email: e.target.value })}
-                                placeholder={`Enter ${field.label}`}
-                                readOnly={isReadOnly}
-                                disabled={isReadOnly}
-                                style={isReadOnly ? readOnlyStyle : inputStyle}
-                            />
-                        </div>
-                        <div style={{ flex: 1 }}>
-                            <input
-                                type="text"
-                                value={emailVal.text || ""}
-                                onChange={(e) => handleFieldChange(field.columnId, { ...emailVal, text: e.target.value })}
-                                placeholder="Display label (optional)"
-                                readOnly={isReadOnly}
-                                disabled={isReadOnly}
-                                style={isReadOnly ? { ...readOnlyStyle, fontSize: "12px" } : { ...inputStyle, fontSize: "12px" }}
-                            />
-                        </div>
-                    </div>
+                    <input
+                        type="email"
+                        value={emailVal.email || ""}
+                        onChange={(e) => handleFieldChange(field.columnId, { ...emailVal, email: e.target.value })}
+                        placeholder={`Enter ${field.label}`}
+                        readOnly={isReadOnly}
+                        disabled={isReadOnly}
+                        style={isReadOnly ? readOnlyStyle : inputStyle}
+                    />
                 );
             }
             case "phone":
@@ -2036,7 +2021,7 @@ const App = () => {
                 const e = typeof value === "object" && value !== null ? value : { email: String(value).trim(), text: String(value).trim() };
                 const addr = (e.email || "").trim();
                 if (!addr) return null;
-                return { email: addr, text: e.text || addr };
+                return { email: addr, text: addr };
             }
             //case "email":
             //return String(value).trim() !== "" ? { email: String(value).trim(), text: String(value).trim() } : null;
